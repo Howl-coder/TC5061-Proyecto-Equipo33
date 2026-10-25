@@ -16,7 +16,8 @@ entry_points:
       pregunta: {type: string}
       modelo: {type: string, default: config}
       hiperparams: {type: string, default: config}
-    command: "python -m src.train --pregunta {pregunta} --modelo {modelo} --hiperparams {hiperparams}"
+      stage: {type: string, default: baseline}
+    command: "python -m src.train --pregunta {pregunta} --modelo {modelo} --hiperparams {hiperparams} --stage {stage}"
 
   search:
     parameters:
