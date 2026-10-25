@@ -42,9 +42,11 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 
 ```text
 ├── Makefile               # make requirements | lint | format | clean
+├── MLproject              # MLflow Project: entry points ingest, features y train
 ├── README.md
-├── config.py              # Rutas, fechas, filtros AMG y configuración de MLflow
+├── config.py              # Rutas, fechas, filtros AMG, MLflow y modelos/hiperparámetros por defecto
 ├── pyproject.toml         # Metadatos del proyecto y configuración de ruff
+├── python_env.yaml        # Entorno del MLproject (mismas versiones que requirements.txt)
 ├── requirements.txt       # Dependencias con versión fija (Python 3.12)
 ├── data/                  # No versionado
 │   ├── raw/               # CSV originales de MiBici
@@ -65,53 +67,100 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
     ├── dataset.py         # Verificación de versión, limpieza y filtrado AMG
     ├── features.py        # Malla horaria, variables cíclicas, rezagos, targets P2 y perfiles P3
     ├── tracking.py        # Utilidades comunes de MLflow (tags, parámetros, verificación de datos)
+    ├── train.py           # Entrena un baseline (pregunta, modelo, hiperparámetros); usado por MLproject
     ├── train_regresion.py       # Baselines P1
     ├── train_clasificacion.py   # Baselines P2
     └── train_clustering.py      # Baseline P3
 ```
 
-## Reproducción
+## Reproducción desde un clon limpio
 
-Requiere Python 3.12. Los comandos son para PowerShell; en Git Bash activa el entorno con `source .venv/Scripts/activate`.
+Todas las corridas se lanzan desde el [MLproject](MLproject) con `mlflow run`, no desde notebooks. Se requiere Python 3.12 y [uv](https://docs.astral.sh/uv/). MLflow usa `uv` para crear el entorno declarado en [python_env.yaml](python_env.yaml). Los comandos son para PowerShell.
+
+**1. Clonar e instalar el CLI de MLflow**
 
 ```powershell
 git clone https://github.com/Howl-coder/MiBiciEquipo33.git
 cd MiBiciEquipo33
-
-# macOS / Linux
-python -m venv .venv && source .venv/bin/activate
-
-# Windows (PowerShell)
-# python -m venv .venv && .\.venv\Scripts\Activate.ps1
-
+python -m venv .venv; .\.venv\Scripts\Activate.ps1   # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-
-python -m src.dataset              # 1. Descarga CSVs si faltan, verifica versión y limpia -> data/interim/
-python -m src.features             # 2. Malla horaria y variables -> data/processed/
-python -m src.train_regresion      # 3. P1
-python -m src.train_clasificacion  #    P2
-python -m src.train_clustering     #    P3
-
-mlflow ui --backend-store-uri sqlite:///mlflow.db   # 4. Ver resultados en http://127.0.0.1:5000
 ```
 
-> Para que los runs queden ligados a un commit exacto, ejecuta los scripts con el árbol de trabajo limpio (`git status` sin cambios). Si hay cambios sin commit, el run se etiqueta con `git_dirty=True`.
+**2. Levantar el servidor de tracking** (terminal aparte, desde la raíz del repo; debe quedar abierta)
+
+El Model Registry requiere un backend con base de datos. `mlflow.db` se crea en la primera ejecución y no se versiona.
+
+```powershell
+mlflow server --backend-store-uri sqlite:///mlflow.db --port 5000
+```
+
+**3. Ingesta y features**
+
+```powershell
+$env:MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"   # bash: export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+
+mlflow run . -e ingest   --experiment-name mibici-equipo33 --env-manager uv   # descarga CSVs, verifica el manifiesto y limpia -> data/interim/
+mlflow run . -e features --experiment-name mibici-equipo33 --env-manager uv   # malla horaria y variables -> data/processed/
+```
+
+**4. Modelo elegido de cada pregunta** (hiperparámetros por defecto de `config.py`)
+
+```powershell
+mlflow run . -e train -P pregunta=p1 -P modelo=histgb --experiment-name mibici-equipo33 --env-manager uv
+mlflow run . -e train -P pregunta=p2 -P modelo=histgb --experiment-name mibici-equipo33 --env-manager uv
+mlflow run . -e train -P pregunta=p3 -P modelo=kmeans --experiment-name mibici-equipo33 --env-manager uv
+```
+
+| Pregunta | Modelo elegido | Run | Hiperparámetros (`config.HIPERPARAMS_POR_DEFECTO`) |
+|---|---|---|---|
+| P1 | `HistGradientBoostingRegressor` | `P1-baseline-histgb` | `max_iter=200`, `learning_rate=0.1`, `max_depth=None` |
+| P2 | `HistGradientBoostingClassifier` | `P2-baseline-histgb` | `max_iter=200`, `learning_rate=0.1`, `max_depth=None`, `class_weight=balanced` |
+| P3 | `StandardScaler` + `KMeans` | `P3-baseline-kmeans` | `k_min=3`, `k_max=10`, `n_init=10` (k elegido por silhouette) |
+
+Los baselines de comparación se lanzan igual, por ejemplo:
+
+```powershell
+mlflow run . -e train -P pregunta=p1 -P modelo=naive -P hiperparams="columna_naive=lag_salidas_1h" --experiment-name mibici-equipo33 --env-manager uv
+mlflow run . -e train -P pregunta=p1 -P modelo=naive --experiment-name mibici-equipo33 --env-manager uv
+mlflow run . -e train -P pregunta=p2 -P modelo=logreg --experiment-name mibici-equipo33 --env-manager uv
+```
+
+La interfaz de MLflow queda disponible en http://127.0.0.1:5000.
+
+### Entry points del MLproject
+
+| Entry point | Parámetros | Ejecuta |
+|---|---|---|
+| `ingest` | — | `python -m src.dataset` |
+| `features` | — | `python -m src.features` |
+| `train` | `pregunta` (`p1`, `p2`, `p3`; obligatorio), `modelo`, `hiperparams` | `python -m src.train` (un run por ejecución) |
+
+- `modelo` e `hiperparams` valen `config` por defecto: se toman `MODELOS_POR_DEFECTO` y `HIPERPARAMS_POR_DEFECTO` de [config.py](config.py). Rutas, fechas, partición y semilla también salen de ahí.
+- Modelos disponibles: P1 `naive`, `histgb`; P2 `logreg`, `histgb`; P3 `kmeans`.
+- `hiperparams` usa el formato `clave=valor,clave=valor`, sin espacios, y solo reemplaza las claves indicadas, por ejemplo `-P hiperparams="max_iter=300,learning_rate=0.05"`. Las claves válidas son las de `HIPERPARAMS_POR_DEFECTO` para ese modelo.
+- `--experiment-name mibici-equipo33` es obligatorio: el script fija ese experimento y MLflow rechaza el run si no coincide. Si el experimento no existe, MLflow lo crea.
+- Con `--env-manager local` se reutiliza el entorno ya activado en lugar de crear uno con `uv`.
+- Para otro servidor de tracking, cambia `MLFLOW_TRACKING_URI`; `config.py` usa `http://127.0.0.1:5000` si la variable no está definida.
+
+> Para que los runs queden ligados a un commit exacto, lánzalos con el árbol de trabajo limpio (`git status` sin cambios). Si hay cambios sin commit, el run se etiqueta con `git_dirty=True`.
 
 ## Experimento en MLflow
 
-- **Experimento:** `mibici-equipo33`, con backend local `mlflow.db` (no versionado).
+- **Experimento:** `mibici-equipo33`, registrado en el servidor local `http://127.0.0.1:5000`, respaldado por `mlflow.db` (SQLite, no versionado).
 - **Tags de cada run:** `equipo`, `pregunta` (`P1`/`P2`/`P3`), `git_commit`, `git_dirty`, `tipo_modelo`, `etapa=baseline`.
 - **Parámetros de cada run:** `fecha_inicio`, `fecha_fin`, `fecha_fin_train`, `fecha_inicio_test`, `data_version`, `data_sha256`, archivos usados, `random_state` e hiperparámetros del modelo.
 - **Artefactos:** figura de evaluación de cada run y el modelo serializado. P3 agrega además el mapa de clusters, los perfiles horarios, la curva de selección de k y la tabla de asignación de estaciones.
 
 | Run | Pregunta | Modelo |
 |---|---|---|
-| `P1-baseline-naive-lag1h` | P1 | Persistencia: misma demanda que la hora anterior |
-| `P1-baseline-naive-estacional-168h` | P1 | Naive estacional: misma hora de la semana anterior |
-| `P1-baseline-histgb-regressor` | P1 | `HistGradientBoostingRegressor` |
-| `P2-baseline-logistic-regression` | P2 | `LogisticRegression` (`class_weight=balanced`) |
-| `P2-baseline-histgb-classifier` | P2 | `HistGradientBoostingClassifier` (`class_weight=balanced`) |
-| `P3-baseline-kmeans-perfiles-estacion` | P3 | `StandardScaler` + `KMeans`, k ∈ [3, 10] elegido por silhouette |
+| `P1-baseline-naive-1h` | P1 | Persistencia: misma demanda que la hora anterior |
+| `P1-baseline-naive-168h` | P1 | Naive estacional: misma hora de la semana anterior |
+| `P1-baseline-histgb` | P1 | `HistGradientBoostingRegressor` |
+| `P2-baseline-logreg` | P2 | `LogisticRegression` (`class_weight=balanced`) |
+| `P2-baseline-histgb` | P2 | `HistGradientBoostingClassifier` (`class_weight=balanced`) |
+| `P3-baseline-kmeans` | P3 | `StandardScaler` + `KMeans`, k ∈ [3, 10] elegido por silhouette |
+
+Los runs registrados antes del MLproject conservan sus nombres anteriores (`P1-baseline-naive-lag1h`, `P2-baseline-logistic-regression`, etc.).
 
 ### Resultados baseline (test: septiembre 2026)
 

@@ -1,0 +1,15 @@
+python: "3.12.10"
+build_dependencies:
+  - pip
+# Mismas versiones fijas que requirements.txt
+dependencies:
+  - ipykernel==6.29.5
+  - matplotlib==3.11.2
+  - mlflow==3.16.1
+  - numpy==2.5.3
+  - optuna==4.1.0
+  - pandas==3.0.6
+  - pyarrow==25.0.1
+  - scikit-learn==1.9.1
+  - ruff==0.17.1
+  - seaborn==0.13.2

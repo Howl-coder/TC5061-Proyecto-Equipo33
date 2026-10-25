@@ -32,6 +32,8 @@ from config import (
 )
 
 ARCHIVOS_CRUDOS = [*ARCHIVOS_VIAJES_RAW, RUTA_CATALOGO_ESTACIONES]
+# El portal responde 406 a menos que lleguen ambos encabezados
+HEADERS_DESCARGA = {"Accept": "*/*", "User-Agent": "mibici-equipo33"}
 
 
 def descargar_datos_crudos(forzar: bool = False) -> None:
@@ -56,7 +58,8 @@ def descargar_datos_crudos(forzar: bool = False) -> None:
             print(f"Ya existe, omitiendo: {nombre}")
             continue
         print(f"Descargando {nombre} ...")
-        with urllib.request.urlopen(url) as respuesta, open(destino, "wb") as archivo:
+        solicitud = urllib.request.Request(url, headers=HEADERS_DESCARGA)
+        with urllib.request.urlopen(solicitud) as respuesta, open(destino, "wb") as archivo:
             while bloque := respuesta.read(1 << 20):
                 archivo.write(bloque)
         print(f"  -> {destino.stat().st_size / 1e6:.1f} MB")

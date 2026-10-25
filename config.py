@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 # Rutas base del proyecto
@@ -54,6 +55,28 @@ FECHA_INICIO_TEST = "2026-09-01 00:00:00"
 RANDOM_STATE = 42
 EQUIPO = "equipo33"
 DATA_VERSION = "mibici-datos-abiertos-2026_04-2026_09"
-MLFLOW_TRACKING_URI = f"sqlite:///{(BASE_DIR / 'mlflow.db').as_posix()}"
+# Servidor local respaldado por mlflow.db (necesario para Model Registry)
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
 MLFLOW_EXPERIMENT_NAME = "mibici-equipo33"
 FIGURES_DIR = REPORTS_DIR / "figures"
+
+# Baselines por pregunta (defaults del entry point `train` del MLproject); la semilla es RANDOM_STATE
+MODELOS_POR_DEFECTO = {"p1": "histgb", "p2": "histgb", "p3": "kmeans"}
+HIPERPARAMS_POR_DEFECTO = {
+    "p1": {
+        "naive": {"columna_naive": "lag_salidas_168h"},
+        "histgb": {"max_iter": 200, "learning_rate": 0.1, "max_depth": None},
+    },
+    "p2": {
+        "logreg": {"C": 1.0, "class_weight": "balanced", "max_iter": 1000},
+        "histgb": {
+            "max_iter": 200,
+            "learning_rate": 0.1,
+            "max_depth": None,
+            "class_weight": "balanced",
+        },
+    },
+    "p3": {
+        "kmeans": {"k_min": 3, "k_max": 10, "n_init": 10},
+    },
+}

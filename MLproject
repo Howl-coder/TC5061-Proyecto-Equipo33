@@ -1,0 +1,25 @@
+name: mibici-equipo33
+
+python_env: python_env.yaml
+
+# Rutas, fechas, semilla, modelos e hiperparámetros por defecto viven en config.py;
+# el valor "config" en `modelo` o `hiperparams` significa "usar config.py".
+entry_points:
+  ingest:
+    command: "python -m src.dataset"
+
+  features:
+    command: "python -m src.features"
+
+  train:
+    parameters:
+      pregunta: {type: string}
+      modelo: {type: string, default: config}
+      hiperparams: {type: string, default: config}
+    command: "python -m src.train --pregunta {pregunta} --modelo {modelo} --hiperparams {hiperparams}"
+
+  search:
+    parameters:
+      pregunta: {type: string}
+      n_trials: {type: int, default: 5}
+    command: "python -m src.search --pregunta {pregunta} --n-trials {n_trials}"

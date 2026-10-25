@@ -45,14 +45,14 @@ def configurar_experimento() -> None:
     mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
 
 
-def tags_run(pregunta: str, tipo_modelo: str) -> dict:
+def tags_run(pregunta: str, model_family: str, stage: str = "baseline") -> dict:
     return {
         "equipo": EQUIPO,
-        "pregunta": pregunta,
+        "question": pregunta,
         "git_commit": obtener_git_commit(),
         "git_dirty": str(repo_con_cambios()),
-        "tipo_modelo": tipo_modelo,
-        "etapa": "baseline",
+        "model_family": model_family,
+        "stage_of_work": stage,
     }
 
 
