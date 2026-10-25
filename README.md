@@ -11,6 +11,15 @@ Pipeline reproducible de Machine Learning para pronosticar la demanda, detectar 
 | Gerardo Duarte Ceballos | Configuración del repositorio e integración |
 | Alejandro Gutiérrez Saldaña | Feature engineering y experimentos MLflow |
 
+## Flujo de trabajo con Git y GitHub
+
+Usamos GitHub Flow: los cambios se desarrollan en ramas y se integran a `main` mediante Pull Requests (PR). No se hacen cambios directamente en `main`.
+
+- **Ramas:** `feat/<descripcion>`, `fix/<descripcion>` o `docs/<descripcion>`.
+- **Commits:** usamos Conventional Commits, por ejemplo `docs: documentar flujo de trabajo`.
+- **Revisión:** cada PR debe ser revisado por al menos otro integrante antes de integrarse.
+- **Protección de `main`:** los cambios deben entrar mediante PR. La protección de la rama se configura en GitHub.
+
 ## Preguntas del proyecto
 
 | | Tipo | Pregunta | Target |
