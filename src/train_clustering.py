@@ -2,20 +2,10 @@
 
 Uso: python -m src.train_clustering
 """
+
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import mlflow
-import mlflow.data
-import mlflow.sklearn
-import pandas as pd
-from mlflow.models import infer_signature
-from sklearn.cluster import KMeans
-from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, silhouette_score
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-
 from config import (
     BASE_DIR,
     FECHA_FIN_TRAIN,
@@ -26,6 +16,17 @@ from config import (
     RUTA_CATALOGO_ESTACIONES,
     RUTA_MANIFIESTO_DATOS,
 )
+import matplotlib.pyplot as plt
+import mlflow
+import mlflow.data
+from mlflow.models import infer_signature
+import mlflow.sklearn
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, silhouette_score
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+
 from src.dataset import cargar_catalogo_amg
 from src.features import construir_perfil_estaciones
 from src.tracking import (
@@ -35,18 +36,28 @@ from src.tracking import (
     tags_run,
 )
 
-FEATURES = (
-    [f"prop_hora_{h:02d}" for h in range(24)]
-    + ["prop_fin_de_semana", "prop_salidas", "prop_circulares", "viajes_por_dia", "uso_por_capacidad"]
-)
+FEATURES = [f"prop_hora_{h:02d}" for h in range(24)] + [
+    "prop_fin_de_semana",
+    "prop_salidas",
+    "prop_circulares",
+    "viajes_por_dia",
+    "uso_por_capacidad",
+]
 
 
 def graficar_mapa(perfil: pd.DataFrame, k: int):
     fig, ax = plt.subplots(figsize=(8, 8))
     sc = ax.scatter(
-        perfil["longitude"], perfil["latitude"], c=perfil["cluster_estacion"],
-        cmap="tab10", vmin=0, vmax=9, s=12 + 4 * perfil["viajes_por_dia"] ** 0.5,
-        alpha=0.85, edgecolor="k", linewidth=0.3,
+        perfil["longitude"],
+        perfil["latitude"],
+        c=perfil["cluster_estacion"],
+        cmap="tab10",
+        vmin=0,
+        vmax=9,
+        s=12 + 4 * perfil["viajes_por_dia"] ** 0.5,
+        alpha=0.85,
+        edgecolor="k",
+        linewidth=0.3,
     )
     ax.legend(*sc.legend_elements(), title="Cluster", loc="lower left")
     ax.set_title(f"P3 — Grupos de cicloestaciones MiBici (K-Means, k={k})")
@@ -102,36 +113,52 @@ def cargar_datos() -> pd.DataFrame:
     )
 
 
-def entrenar(nombre_modelo: str, hiperparams: dict, perfil: pd.DataFrame, params_base: dict, stage: str = "baseline", nested: bool = False) -> dict:
+def entrenar(
+    nombre_modelo: str,
+    hiperparams: dict,
+    perfil: pd.DataFrame,
+    params_base: dict,
+    stage: str = "baseline",
+    nested: bool = False,
+) -> dict:
     """Registra el run de P3: elige k en ``[k_min, k_max]`` por silhouette y ajusta K-Means."""
     k_min, k_max, n_init = hiperparams["k_min"], hiperparams["k_max"], hiperparams["n_init"]
     X = StandardScaler().fit_transform(perfil[FEATURES])
 
-    with mlflow.start_run(run_name=f"P3-baseline-{nombre_modelo}", nested=nested):
+    with mlflow.start_run(run_name=f"P3-{stage}-{nombre_modelo}", nested=nested):
         mlflow.set_tags(tags_run("P3", "KMeans", stage=stage))
         mlflow.log_params(params_base)
-        mlflow.log_params({
-            "periodo_perfil": f"fecha_inicio..{FECHA_FIN_TRAIN}",
-            "features": ",".join(FEATURES),
-            "escalado": "StandardScaler",
-            "k_min": k_min,
-            "k_max": k_max,
-            "n_init": n_init,
-            "criterio_seleccion_k": "max_silhouette",
-            "n_estaciones": len(perfil),
-        })
+        mlflow.log_params(
+            {
+                "periodo_perfil": f"fecha_inicio..{FECHA_FIN_TRAIN}",
+                "features": ",".join(FEATURES),
+                "escalado": "StandardScaler",
+                "k_min": k_min,
+                "k_max": k_max,
+                "n_init": n_init,
+                "criterio_seleccion_k": "max_silhouette",
+                "n_estaciones": len(perfil),
+            }
+        )
 
         filas = []
         for k in range(k_min, k_max + 1):
-            etiquetas = KMeans(n_clusters=k, n_init=n_init, random_state=RANDOM_STATE).fit_predict(X)
+            etiquetas = KMeans(n_clusters=k, n_init=n_init, random_state=RANDOM_STATE).fit_predict(
+                X
+            )
             fila = {
                 "k": k,
                 "silhouette": silhouette_score(X, etiquetas),
                 "davies_bouldin": davies_bouldin_score(X, etiquetas),
             }
             filas.append(fila)
-            mlflow.log_metrics({"silhouette_por_k": fila["silhouette"],
-                                "davies_bouldin_por_k": fila["davies_bouldin"]}, step=k)
+            mlflow.log_metrics(
+                {
+                    "silhouette_por_k": fila["silhouette"],
+                    "davies_bouldin_por_k": fila["davies_bouldin"],
+                },
+                step=k,
+            )
         resultados = pd.DataFrame(filas)
         k_opt = int(resultados.loc[resultados["silhouette"].idxmax(), "k"])
 
@@ -155,7 +182,8 @@ def entrenar(nombre_modelo: str, hiperparams: dict, perfil: pd.DataFrame, params
 
         signature = infer_signature(perfil[FEATURES], pipeline.predict(perfil[FEATURES]))
         mlflow.sklearn.log_model(
-            pipeline, name="modelo",
+            pipeline,
+            name="modelo",
             signature=signature,
             input_example=perfil[FEATURES].iloc[:3],
             skops_trusted_types=SKOPS_TIPOS_CONFIABLES,
@@ -172,8 +200,17 @@ def entrenar(nombre_modelo: str, hiperparams: dict, perfil: pd.DataFrame, params
         guardar_y_registrar(graficar_perfiles_horarios(perfil), "P3_perfiles_horarios.png")
         guardar_y_registrar(graficar_curva_k(resultados), "P3_seleccion_k.png")
 
-        asignacion = perfil[["id", "name", "latitude", "longitude", "dpcapacity",
-                             "viajes_por_dia", "cluster_estacion"]]
+        asignacion = perfil[
+            [
+                "id",
+                "name",
+                "latitude",
+                "longitude",
+                "dpcapacity",
+                "viajes_por_dia",
+                "cluster_estacion",
+            ]
+        ]
         mlflow.log_table(asignacion, artifact_file="tablas/asignacion_clusters.json")
         mlflow.log_table(resultados, artifact_file="tablas/seleccion_k.json")
 

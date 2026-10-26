@@ -42,7 +42,7 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 
 ```text
 ├── Makefile               # make requirements | lint | format | clean
-├── MLproject              # MLflow Project: entry points ingest, features y train
+├── MLproject              # MLflow Project: entry points ingest, features, train y search
 ├── README.md
 ├── config.py              # Rutas, fechas, filtros AMG, MLflow y modelos/hiperparámetros por defecto
 ├── pyproject.toml         # Metadatos del proyecto y configuración de ruff
@@ -62,12 +62,15 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 │   ├── diagrama_pipeline.md
 │   └── manifiesto_datos.json        # Versión de los datos crudos (SHA-256)
 ├── reports/
-│   └── figures/           # Figuras generadas (también se guardan como artefactos en MLflow)
+│   ├── figures/           # Figuras generadas (también se guardan como artefactos en MLflow)
+│   └── parte-c-model-registry.md  # Comparación y justificación de modelos promovidos
 └── src/
     ├── dataset.py         # Verificación de versión, limpieza y filtrado AMG
     ├── features.py        # Malla horaria, variables cíclicas, rezagos, targets P2 y perfiles P3
     ├── tracking.py        # Utilidades comunes de MLflow (tags, parámetros, verificación de datos)
-    ├── train.py           # Entrena un baseline (pregunta, modelo, hiperparámetros); usado por MLproject
+    ├── train.py           # Entrena un modelo (pregunta, modelo, hiperparámetros); usado por MLproject
+    ├── search.py          # Búsqueda Optuna con runs anidados y validación temporal
+    ├── register_models.py # Registra los modelos elegidos y promueve el alias champion
     ├── train_regresion.py       # Baselines P1
     ├── train_clasificacion.py   # Baselines P2
     └── train_clustering.py      # Baseline P3
@@ -80,8 +83,8 @@ Todas las corridas se lanzan desde el [MLproject](MLproject) con `mlflow run`, n
 **1. Clonar e instalar el CLI de MLflow**
 
 ```powershell
-git clone https://github.com/Howl-coder/MiBiciEquipo33.git
-cd MiBiciEquipo33
+git clone https://github.com/Howl-coder/TC5061-Proyecto-Equipo33.git
+cd TC5061-Proyecto-Equipo33
 python -m venv .venv; .\.venv\Scripts\Activate.ps1   # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -111,9 +114,41 @@ mlflow run . -e train -P pregunta=p2 -P modelo=histgb --experiment-name mibici-e
 mlflow run . -e train -P pregunta=p3 -P modelo=kmeans --experiment-name mibici-equipo33 --env-manager uv
 ```
 
+**5. Búsqueda de hiperparámetros**
+
+```powershell
+mlflow run . -e search -P pregunta=p1 --experiment-name mibici-equipo33 --env-manager uv
+mlflow run . -e search -P pregunta=p2 --experiment-name mibici-equipo33 --env-manager uv
+mlflow run . -e search -P pregunta=p3 --experiment-name mibici-equipo33 --env-manager uv
+```
+
+Las búsquedas supervisadas P1 y P2 ajustan sus combinaciones con datos de abril a junio
+y validan en julio. En P2 se excluyen las tres horas anteriores al corte para evitar que
+las etiquetas de riesgo del entrenamiento incluyan balances de la validación. Septiembre
+permanece reservado para la comparación final y no se usa en Optuna. P3 calcula perfiles
+solo hasta agosto, como en el baseline, y compara silhouette dentro de esos perfiles sin
+usar datos de septiembre.
+
+Tras escoger los hiperparámetros con las métricas `best_validation_*` del run padre (P3
+elige por silhouette usando solo los perfiles de entrenamiento), vuelve a ejecutar cada
+configuración como `candidate`: el entry point `train` ajusta con todo el periodo de
+entrenamiento y evalúa una sola vez en septiembre. Sustituye los hiperparámetros por los
+ganadores observados en MLflow. En P2, usa `tipo_modelo` del run padre para elegir
+`-P modelo=logreg` o `-P modelo=histgb`; no lo pases como hiperparámetro:
+
+```powershell
+mlflow run . -e train -P pregunta=p1 -P modelo=histgb -P hiperparams="max_iter=300,learning_rate=0.05,max_depth=5,min_samples_leaf=40,l2_regularization=0.1" -P stage=candidate --experiment-name mibici-equipo33 --env-manager uv
+mlflow run . -e train -P pregunta=p2 -P modelo=histgb -P hiperparams="max_iter=300,learning_rate=0.05,max_depth=5" -P stage=candidate --experiment-name mibici-equipo33 --env-manager uv
+mlflow run . -e train -P pregunta=p3 -P modelo=kmeans -P hiperparams="k_min=3,k_max=10,n_init=10" -P stage=candidate --experiment-name mibici-equipo33 --env-manager uv
+```
+
+En P2 el entrenamiento final también deja un margen de tres horas antes del test, pues
+el target observa el balance de las siguientes tres horas. Los baselines de P2 deben
+volverse a correr con esta purga antes de comparar sus métricas con las de los candidatos.
+
 | Pregunta | Modelo elegido | Run | Hiperparámetros (`config.HIPERPARAMS_POR_DEFECTO`) |
 |---|---|---|---|
-| P1 | `HistGradientBoostingRegressor` | `P1-baseline-histgb` | `max_iter=200`, `learning_rate=0.1`, `max_depth=None` |
+| P1 | `HistGradientBoostingRegressor` | `P1-baseline-histgb` | `max_iter=200`, `learning_rate=0.1`, `max_depth=None`, `min_samples_leaf=20`, `l2_regularization=0.0` |
 | P2 | `HistGradientBoostingClassifier` | `P2-baseline-histgb` | `max_iter=200`, `learning_rate=0.1`, `max_depth=None`, `class_weight=balanced` |
 | P3 | `StandardScaler` + `KMeans` | `P3-baseline-kmeans` | `k_min=3`, `k_max=10`, `n_init=10` (k elegido por silhouette) |
 
@@ -133,7 +168,8 @@ La interfaz de MLflow queda disponible en http://127.0.0.1:5000.
 |---|---|---|
 | `ingest` | — | `python -m src.dataset` |
 | `features` | — | `python -m src.features` |
-| `train` | `pregunta` (`p1`, `p2`, `p3`; obligatorio), `modelo`, `hiperparams` | `python -m src.train` (un run por ejecución) |
+| `train` | `pregunta` (`p1`, `p2`, `p3`; obligatorio), `modelo`, `hiperparams`, `stage` (`baseline` o `candidate`) | `python -m src.train` (un run por ejecución) |
+| `search` | `pregunta` (`p1`, `p2`, `p3`; obligatorio), `n_trials` (default: 5) | `python -m src.search` (run padre y runs hijos anidados) |
 
 - `modelo` e `hiperparams` valen `config` por defecto: se toman `MODELOS_POR_DEFECTO` y `HIPERPARAMS_POR_DEFECTO` de [config.py](config.py). Rutas, fechas, partición y semilla también salen de ahí.
 - Modelos disponibles: P1 `naive`, `histgb`; P2 `logreg`, `histgb`; P3 `kmeans`.
@@ -147,7 +183,7 @@ La interfaz de MLflow queda disponible en http://127.0.0.1:5000.
 ## Experimento en MLflow
 
 - **Experimento:** `mibici-equipo33`, registrado en el servidor local `http://127.0.0.1:5000`, respaldado por `mlflow.db` (SQLite, no versionado).
-- **Tags de cada run:** `equipo`, `pregunta` (`P1`/`P2`/`P3`), `git_commit`, `git_dirty`, `tipo_modelo`, `etapa=baseline`.
+- **Tags de cada run:** `equipo`, `question` (`P1`/`P2`/`P3`), `git_commit`, `git_dirty`, `model_family`, `stage_of_work` (`baseline`, `search`, `candidate`).
 - **Parámetros de cada run:** `fecha_inicio`, `fecha_fin`, `fecha_fin_train`, `fecha_inicio_test`, `data_version`, `data_sha256`, archivos usados, `random_state` e hiperparámetros del modelo.
 - **Artefactos:** figura de evaluación de cada run y el modelo serializado. P3 agrega además el mapa de clusters, los perfiles horarios, la curva de selección de k y la tabla de asignación de estaciones.
 
@@ -167,8 +203,12 @@ Los runs registrados antes del MLproject conservan sus nombres anteriores (`P1-b
 | Pregunta | Mejor baseline | Métricas |
 |---|---|---|
 | P1 | HistGradientBoosting | RMSE 1.48 · MAE 0.84 · R² 0.69 (naive 168 h: RMSE 2.00 · R² 0.44) |
-| P2 | HistGradientBoosting | ROC-AUC 0.86 · PR-AUC 0.34 · Recall 0.88 · F1 0.32 (positivos ≈ 6.6 %) |
+| P2 | HistGradientBoosting | ROC-AUC 0.86 · PR-AUC 0.34 · Recall 0.88 · F1 0.32 (positivos ≈ 6.6 %; referencia previa a la purga temporal) |
 | P3 | K-Means, k = 3 | Silhouette 0.09 · Davies-Bouldin 2.61 |
+
+Los resultados P2 de esa tabla son una referencia histórica: la implementación actual
+purga las tres horas previas al test para impedir fuga en el target de horizonte de tres
+horas. Ejecuta de nuevo el baseline y los candidatos para compararlos bajo el mismo corte.
 
 ### Decisiones de diseño
 
@@ -176,3 +216,46 @@ Los runs registrados antes del MLproject conservan sus nombres anteriores (`P1-b
 - **P3:** el perfil de cada estación se calcula solo con el periodo de entrenamiento. La latitud y la longitud se usan para el mapa, no para agrupar.
 - **Calidad de datos:** se eliminan los `Viaje_Id` duplicados, los viajes de menos de 1 minuto o más de 24 horas y las estaciones fuera del AMG o sin registro en la nomenclatura.
 - **Privacidad:** `Usuario_Id`, `Genero` y `Anio_de_nacimiento` no se usan como variables de los modelos.
+
+## Parte C — Model Registry y reporte
+
+Los modelos seleccionados se registran en el Model Registry con nombres estables y se
+promueven con el alias `champion`. Se usan aliases en vez de las etapas legacy (`Staging`,
+`Production`), porque son el esquema vigente de MLflow y permiten cambiar la versión de
+producción sin recrear el modelo registrado.
+
+| Pregunta | Nombre en Model Registry | URI de producción |
+|---|---|---|
+| P1 — demanda | `mibici-equipo33-p1-demanda` | `models:/mibici-equipo33-p1-demanda@champion` |
+| P2 — riesgo | `mibici-equipo33-p2-riesgo` | `models:/mibici-equipo33-p2-riesgo@champion` |
+| P3 — grupos | `mibici-equipo33-p3-grupos` | `models:/mibici-equipo33-p3-grupos@champion` |
+
+Después de comparar los runs baseline y candidatos de cada pregunta en la UI de MLflow,
+registra los tres IDs elegidos. El backend debe estar activo, `MLFLOW_TRACKING_URI` debe
+apuntar a él y los runs seleccionados deben provenir de un árbol Git limpio:
+
+```powershell
+python -m src.register_models `
+  --p1-run-id <RUN_ID_P1> --p1-justification "Justificación basada en RMSE, MAE, R2 y costo." `
+  --p2-run-id <RUN_ID_P2> --p2-justification "Justificación basada en recall, PR-AUC, F1 y costo." `
+  --p3-run-id <RUN_ID_P3> --p3-justification "Justificación basada en silhouette, Davies-Bouldin y costo."
+```
+
+El comando valida experimento, pregunta, etapa, métricas, commit, limpieza del árbol,
+versión de datos, firma y carga del modelo. Registra cada versión desde su run de origen,
+agrega tags con el experimento, `run_id`, commit y `data_version`, asigna el alias
+`champion` y verifica la carga por URI de producción. Una promoción nueva mueve el alias
+al run que se indique. El reporte [reports/parte-c-model-registry.md](reports/parte-c-model-registry.md)
+documenta los criterios y, después de una promoción exitosa, contiene las métricas reales,
+duraciones y justificaciones de los runs seleccionados.
+
+La selección debe privilegiar `test_rmse` bajo para P1, `test_recall` y `test_pr_auc` para
+P2 por el costo de no detectar estaciones en riesgo, y `silhouette` junto con
+`davies_bouldin` para P3. La duración del entrenamiento se reporta como referencia de
+costo; el costo de inferencia no está medido.
+
+Para cargar un modelo promovido:
+
+```powershell
+python -c "import mlflow.pyfunc; mlflow.pyfunc.load_model('models:/mibici-equipo33-p1-demanda@champion')"
+```

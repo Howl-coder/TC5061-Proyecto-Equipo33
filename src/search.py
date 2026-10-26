@@ -5,18 +5,45 @@ Uso:
     python -m src.search --pregunta p2 --n-trials 8
     python -m src.search --pregunta p3
 """
+
 import argparse
 import contextlib
 
+from config import (
+    FECHA_FIN_VALIDACION,
+    FECHA_INICIO_TEST,
+    FECHA_INICIO_VALIDACION,
+    RANDOM_STATE,
+)
 import mlflow
 import optuna
+import pandas as pd
 
-from config import RANDOM_STATE
 from src.tracking import configurar_experimento, params_reproducibilidad, tags_run
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 N_TRIALS_DEFAULT = 5
+
+
+def _partir_validacion(train: pd.DataFrame, purge_hours: int = 0):
+    """Split training history into a purged fit period and a July validation window."""
+    if purge_hours < 0:
+        raise ValueError("purge_hours no puede ser negativo.")
+    inicio = pd.Timestamp(FECHA_INICIO_VALIDACION)
+    fin = pd.Timestamp(FECHA_FIN_VALIDACION)
+    inicio_test = pd.Timestamp(FECHA_INICIO_TEST)
+    if fin < inicio:
+        raise ValueError("La fecha final de validación debe ser posterior a la inicial.")
+    if fin >= inicio_test:
+        raise ValueError("La validación debe terminar antes del periodo de prueba.")
+
+    corte_entrenamiento = inicio - pd.Timedelta(hours=purge_hours)
+    fit = train[train["timestamp_hora"] < corte_entrenamiento]
+    validation = train[(train["timestamp_hora"] >= inicio) & (train["timestamp_hora"] <= fin)]
+    if fit.empty or validation.empty:
+        raise ValueError("No hay suficientes filas para crear train y validación temporales.")
+    return fit, validation
 
 
 def _run_o_activo(nombre: str):
@@ -29,12 +56,20 @@ def _run_o_activo(nombre: str):
 
 # ── P1 ──────────────────────────────────────────────────────────────────────
 
+
 def _buscar_p1(params_base: dict, n_trials: int) -> None:
     from sklearn.ensemble import HistGradientBoostingRegressor
 
     from src.train_regresion import cargar_datos, ejecutar_run
 
-    train, test = cargar_datos()
+    train, _ = cargar_datos()
+    train, validation = _partir_validacion(train)
+    params_busqueda = {
+        **params_base,
+        "validation_start": FECHA_INICIO_VALIDACION,
+        "validation_end": FECHA_FIN_VALIDACION,
+        "validation_purge_hours": 0,
+    }
 
     def objective(trial) -> float:
         hiperparams = {
@@ -47,37 +82,45 @@ def _buscar_p1(params_base: dict, n_trials: int) -> None:
         metricas = ejecutar_run(
             f"P1-candidate-histgb-t{trial.number}",
             "HistGradientBoostingRegressor",
-            train, test, params_base,
+            train,
+            validation,
+            params_busqueda,
             modelo=HistGradientBoostingRegressor(**hiperparams, random_state=RANDOM_STATE),
             stage="candidate",
             nested=True,
+            metric_prefix="validation",
         )
-        return metricas["test_rmse"]
+        return metricas["validation_rmse"]
 
     with _run_o_activo("P1-search-histgb"):
         mlflow.set_tags(tags_run("P1", "HistGradientBoostingRegressor", stage="search"))
+        mlflow.log_params(params_busqueda)
         mlflow.log_param("n_trials", n_trials)
 
         study = optuna.create_study(direction="minimize", study_name="P1-histgb")
         study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
         mlflow.log_params({f"best_{k}": v for k, v in study.best_params.items()})
-        mlflow.log_metric("best_test_rmse", study.best_value)
+        mlflow.log_metric("best_validation_rmse", study.best_value)
         print(f"\nP1 mejor trial #{study.best_trial.number}: RMSE={study.best_value:.4f}")
         print(f"  Params: {study.best_params}")
 
 
 # ── P2 ──────────────────────────────────────────────────────────────────────
 
+
 def _buscar_p2(params_base: dict, n_trials: int) -> None:
-    from sklearn.ensemble import HistGradientBoostingClassifier
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import StandardScaler
 
-    from src.train_clasificacion import MODELOS, cargar_datos, ejecutar_run
+    from src.train_clasificacion import HORIZONTE_H, MODELOS, cargar_datos, ejecutar_run
 
-    train, test = cargar_datos()
+    train, _ = cargar_datos()
+    train, validation = _partir_validacion(train, purge_hours=HORIZONTE_H)
+    params_busqueda = {
+        **params_base,
+        "validation_start": FECHA_INICIO_VALIDACION,
+        "validation_end": FECHA_FIN_VALIDACION,
+        "validation_purge_hours": HORIZONTE_H,
+    }
 
     def objective(trial) -> float:
         tipo = trial.suggest_categorical("tipo_modelo", ["logreg", "histgb"])
@@ -103,26 +146,31 @@ def _buscar_p2(params_base: dict, n_trials: int) -> None:
             tipo_modelo,
             construir(hiperparams),
             hiperparams,
-            train, test, params_base,
+            train,
+            validation,
+            params_busqueda,
             stage="candidate",
             nested=True,
+            metric_prefix="validation",
         )
-        return -metricas["test_f1"]
+        return -metricas["validation_f1"]
 
     with _run_o_activo("P2-search-mixed"):
         mlflow.set_tags(tags_run("P2", "LogisticRegression+HistGBClassifier", stage="search"))
+        mlflow.log_params(params_busqueda)
         mlflow.log_param("n_trials", n_trials)
 
         study = optuna.create_study(direction="minimize", study_name="P2-mixed")
         study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
         mlflow.log_params({f"best_{k}": v for k, v in study.best_params.items()})
-        mlflow.log_metric("best_test_f1", -study.best_value)
+        mlflow.log_metric("best_validation_f1", -study.best_value)
         print(f"\nP2 mejor trial #{study.best_trial.number}: F1={-study.best_value:.4f}")
         print(f"  Params: {study.best_params}")
 
 
 # ── P3 ──────────────────────────────────────────────────────────────────────
+
 
 def _buscar_p3(params_base: dict, n_trials: int) -> None:
     from src.train_clustering import cargar_datos, entrenar
@@ -168,9 +216,15 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--pregunta", required=True, choices=sorted(BUSCADORES))
-    parser.add_argument("--n-trials", type=int, default=N_TRIALS_DEFAULT,
-                        help=f"Número de trials de Optuna (default: {N_TRIALS_DEFAULT}).")
+    parser.add_argument(
+        "--n-trials",
+        type=int,
+        default=N_TRIALS_DEFAULT,
+        help=f"Número de trials de Optuna (default: {N_TRIALS_DEFAULT}).",
+    )
     args = parser.parse_args()
+    if args.n_trials < 1:
+        parser.error("--n-trials debe ser al menos 1.")
 
     configurar_experimento()
     params_base = params_reproducibilidad()
