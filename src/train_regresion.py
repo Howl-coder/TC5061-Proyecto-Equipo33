@@ -2,19 +2,10 @@
 
 Uso: python -m src.train_regresion
 """
+
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import mlflow
-import mlflow.data
-import mlflow.sklearn
-import numpy as np
-import pandas as pd
-from mlflow.models import infer_signature
-from sklearn.ensemble import HistGradientBoostingRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-
 from config import (
     BASE_DIR,
     FECHA_INICIO_TEST,
@@ -24,6 +15,16 @@ from config import (
     RANDOM_STATE,
     RUTA_MANIFIESTO_DATOS,
 )
+import matplotlib.pyplot as plt
+import mlflow
+import mlflow.data
+from mlflow.models import infer_signature
+import mlflow.sklearn
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
 from src.tracking import (
     SKOPS_TIPOS_CONFIABLES,
     configurar_experimento,
@@ -33,9 +34,17 @@ from src.tracking import (
 
 TARGET = "demanda_salidas"
 FEATURES = [
-    "hora_sin", "hora_cos", "dia_sin", "dia_cos", "es_fin_de_semana",
-    "lag_salidas_1h", "lag_salidas_2h", "lag_salidas_3h",
-    "lag_salidas_24h", "lag_salidas_168h", "rolling_mean_6h",
+    "hora_sin",
+    "hora_cos",
+    "dia_sin",
+    "dia_cos",
+    "es_fin_de_semana",
+    "lag_salidas_1h",
+    "lag_salidas_2h",
+    "lag_salidas_3h",
+    "lag_salidas_24h",
+    "lag_salidas_168h",
+    "rolling_mean_6h",
 ]
 TIPOS_NAIVE = {"lag_salidas_1h": "naive_persistencia", "lag_salidas_168h": "naive_estacional"}
 
@@ -48,8 +57,8 @@ def metricas_regresion(y_true, y_pred) -> dict:
     }
 
 
-def graficar_real_vs_pred(test: pd.DataFrame, y_pred, nombre: str):
-    """Serie real vs. predicha de la primera semana de test en la estación de mayor demanda."""
+def graficar_real_vs_pred(test: pd.DataFrame, y_pred, nombre: str, metric_prefix: str):
+    """Serie real vs. predicha de la primera semana en la estación de mayor demanda."""
     test = test.assign(pred=y_pred)
     estacion = test.groupby("Origen_Id")[TARGET].sum().idxmax()
     serie = test[test["Origen_Id"] == estacion].head(24 * 7)
@@ -57,7 +66,7 @@ def graficar_real_vs_pred(test: pd.DataFrame, y_pred, nombre: str):
     fig, ax = plt.subplots(figsize=(12, 4))
     ax.plot(serie["timestamp_hora"], serie[TARGET], label="Real", lw=1.5)
     ax.plot(serie["timestamp_hora"], serie["pred"], label="Predicción", lw=1.2, ls="--")
-    ax.set_title(f"P1 {nombre} — estación {estacion}, primera semana de test")
+    ax.set_title(f"P1 {nombre} — estación {estacion}, primera semana de {metric_prefix}")
     ax.set_ylabel("Salidas por hora")
     ax.legend()
     fig.autofmt_xdate()
@@ -65,30 +74,47 @@ def graficar_real_vs_pred(test: pd.DataFrame, y_pred, nombre: str):
 
 
 def ejecutar_run(
-    nombre_run, tipo_modelo, train, test, params_base,
-    modelo=None, columna_naive=None, stage="baseline", nested=False,
+    nombre_run,
+    tipo_modelo,
+    train,
+    test,
+    params_base,
+    modelo=None,
+    columna_naive=None,
+    stage="baseline",
+    nested=False,
+    metric_prefix="test",
 ) -> dict:
     with mlflow.start_run(run_name=nombre_run, nested=nested):
         mlflow.set_tags(tags_run("P1", tipo_modelo, stage=stage))
         mlflow.log_params(params_base)
-        mlflow.log_params({
-            "target": TARGET,
-            "horizonte_h": 1,
-            "n_train": len(train),
-            "n_test": len(test),
-            "n_estaciones": test["Origen_Id"].nunique(),
-        })
+        mlflow.log_params(
+            {
+                "target": TARGET,
+                "horizonte_h": 1,
+                "n_train": len(train),
+                f"n_{metric_prefix}": len(test),
+                "n_estaciones": test["Origen_Id"].nunique(),
+            }
+        )
 
         if modelo is not None:
             mlflow.log_params({"features": ",".join(FEATURES), **modelo.get_params()})
             modelo.fit(train[FEATURES], train[TARGET])
             y_pred = np.clip(modelo.predict(test[FEATURES]), 0, None)
-            mlflow.log_metrics({f"train_{k}": v for k, v in metricas_regresion(
-                train[TARGET], modelo.predict(train[FEATURES])).items()})
+            mlflow.log_metrics(
+                {
+                    f"train_{k}": v
+                    for k, v in metricas_regresion(
+                        train[TARGET], modelo.predict(train[FEATURES])
+                    ).items()
+                }
+            )
 
             signature = infer_signature(train[FEATURES], modelo.predict(train[FEATURES]))
             mlflow.sklearn.log_model(
-                modelo, name="modelo",
+                modelo,
+                name="modelo",
                 signature=signature,
                 input_example=train[FEATURES].iloc[:3],
                 skops_trusted_types=SKOPS_TIPOS_CONFIABLES,
@@ -97,7 +123,9 @@ def ejecutar_run(
             mlflow.log_param("columna_naive", columna_naive)
             y_pred = test[columna_naive].to_numpy()
 
-        metricas = {f"test_{k}": v for k, v in metricas_regresion(test[TARGET], y_pred).items()}
+        metricas = {
+            f"{metric_prefix}_{k}": v for k, v in metricas_regresion(test[TARGET], y_pred).items()
+        }
         mlflow.log_metrics(metricas)
 
         dataset_train = mlflow.data.from_pandas(
@@ -108,7 +136,7 @@ def ejecutar_run(
         )
         mlflow.log_input(dataset_train, context="training")
 
-        fig = graficar_real_vs_pred(test, y_pred, nombre_run)
+        fig = graficar_real_vs_pred(test, y_pred, nombre_run, metric_prefix)
         ruta_fig = FIGURES_DIR / f"{nombre_run}_real_vs_pred.png"
         fig.savefig(ruta_fig, dpi=120, bbox_inches="tight")
         plt.close(fig)
@@ -133,21 +161,38 @@ def cargar_datos():
     return df[df["timestamp_hora"] < corte], df[df["timestamp_hora"] >= corte]
 
 
-def entrenar(modelo: str, hiperparams: dict, datos, params_base: dict, stage: str = "baseline", nested: bool = False) -> dict:
+def entrenar(
+    modelo: str,
+    hiperparams: dict,
+    datos,
+    params_base: dict,
+    stage: str = "baseline",
+    nested: bool = False,
+) -> dict:
     """Registra un run de P1; ``modelo`` es una clave de ``HIPERPARAMS_POR_DEFECTO["p1"]``."""
     train, test = datos
     if modelo == "naive":
         columna = hiperparams["columna_naive"]
         return ejecutar_run(
-            f"P1-baseline-naive-{columna.removeprefix('lag_salidas_')}",
-            TIPOS_NAIVE.get(columna, "naive"), train, test, params_base,
-            columna_naive=columna, stage=stage, nested=nested,
+            f"P1-{stage}-naive-{columna.removeprefix('lag_salidas_')}",
+            TIPOS_NAIVE.get(columna, "naive"),
+            train,
+            test,
+            params_base,
+            columna_naive=columna,
+            stage=stage,
+            nested=nested,
         )
     else:
         return ejecutar_run(
-            "P1-baseline-histgb", "HistGradientBoostingRegressor", train, test, params_base,
+            f"P1-{stage}-histgb",
+            "HistGradientBoostingRegressor",
+            train,
+            test,
+            params_base,
             modelo=HistGradientBoostingRegressor(**hiperparams, random_state=RANDOM_STATE),
-            stage=stage, nested=nested,
+            stage=stage,
+            nested=nested,
         )
 
 

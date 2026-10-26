@@ -50,6 +50,9 @@ LON_MIN, LON_MAX = -103.50, -103.20
 # Partición temporal (Train: abr–ago, Test: sep)
 FECHA_FIN_TRAIN = "2026-08-31 23:59:59"
 FECHA_INICIO_TEST = "2026-09-01 00:00:00"
+# Validación temporal para búsquedas: entrenar hasta junio y validar en julio
+FECHA_INICIO_VALIDACION = "2026-07-01 00:00:00"
+FECHA_FIN_VALIDACION = "2026-07-31 23:59:59"
 
 # MLOps
 RANDOM_STATE = 42
@@ -59,13 +62,26 @@ DATA_VERSION = "mibici-datos-abiertos-2026_04-2026_09"
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
 MLFLOW_EXPERIMENT_NAME = "mibici-equipo33"
 FIGURES_DIR = REPORTS_DIR / "figures"
+MLFLOW_PRODUCTION_ALIAS = "champion"
+MLFLOW_REGISTERED_MODELS = {
+    "p1": "mibici-equipo33-p1-demanda",
+    "p2": "mibici-equipo33-p2-riesgo",
+    "p3": "mibici-equipo33-p3-grupos",
+}
+MODEL_REGISTRY_REPORT = REPORTS_DIR / "parte-c-model-registry.md"
 
 # Baselines por pregunta (defaults del entry point `train` del MLproject); la semilla es RANDOM_STATE
 MODELOS_POR_DEFECTO = {"p1": "histgb", "p2": "histgb", "p3": "kmeans"}
 HIPERPARAMS_POR_DEFECTO = {
     "p1": {
         "naive": {"columna_naive": "lag_salidas_168h"},
-        "histgb": {"max_iter": 200, "learning_rate": 0.1, "max_depth": None},
+        "histgb": {
+            "max_iter": 200,
+            "learning_rate": 0.1,
+            "max_depth": None,
+            "min_samples_leaf": 20,
+            "l2_regularization": 0.0,
+        },
     },
     "p2": {
         "logreg": {"C": 1.0, "class_weight": "balanced", "max_iter": 1000},

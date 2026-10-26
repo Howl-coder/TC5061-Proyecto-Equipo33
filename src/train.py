@@ -1,4 +1,4 @@
-"""Entrena un baseline (un run de MLflow) para la pregunta y el modelo indicados.
+"""Entrena un modelo (un run de MLflow) para la pregunta y el modelo indicados.
 
 Uso:
     python -m src.train --pregunta p2 --modelo logreg --hiperparams "C=0.5,max_iter=2000"
@@ -6,10 +6,12 @@ Uso:
 Si ``--modelo`` o ``--hiperparams`` se omiten o valen ``config``, se usan los valores de
 ``config.py``; los hiperparámetros indicados solo reemplazan a los del modelo por defecto.
 """
+
 import argparse
 import ast
 
 from config import HIPERPARAMS_POR_DEFECTO, MODELOS_POR_DEFECTO
+
 from src import train_clasificacion, train_clustering, train_regresion
 from src.tracking import configurar_experimento, params_reproducibilidad
 
@@ -42,23 +44,39 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--pregunta", required=True, choices=sorted(MODULOS))
-    parser.add_argument("--modelo", default=USAR_CONFIG, help="Por defecto, config.MODELOS_POR_DEFECTO.")
-    parser.add_argument("--hiperparams", default=USAR_CONFIG, help="clave=valor separados por comas.")
+    parser.add_argument(
+        "--modelo", default=USAR_CONFIG, help="Por defecto, config.MODELOS_POR_DEFECTO."
+    )
+    parser.add_argument(
+        "--hiperparams", default=USAR_CONFIG, help="clave=valor separados por comas."
+    )
+    parser.add_argument("--stage", choices=["baseline", "candidate"], default="baseline")
     args = parser.parse_args()
 
     modelo = MODELOS_POR_DEFECTO[args.pregunta] if args.modelo == USAR_CONFIG else args.modelo
     defaults = HIPERPARAMS_POR_DEFECTO[args.pregunta]
     if modelo not in defaults:
-        parser.error(f"Modelo '{modelo}' no válido para {args.pregunta}. Opciones: {sorted(defaults)}")
+        parser.error(
+            f"Modelo '{modelo}' no válido para {args.pregunta}. Opciones: {sorted(defaults)}"
+        )
     try:
-        hiperparams = {**defaults[modelo], **parsear_hiperparams(args.hiperparams, defaults[modelo])}
+        hiperparams = {
+            **defaults[modelo],
+            **parsear_hiperparams(args.hiperparams, defaults[modelo]),
+        }
     except ValueError as e:
         parser.error(str(e))
 
     modulo = MODULOS[args.pregunta]
     datos = modulo.cargar_datos()
     configurar_experimento()
-    modulo.entrenar(modelo, hiperparams, datos, params_reproducibilidad())
+    modulo.entrenar(
+        modelo,
+        hiperparams,
+        datos,
+        params_reproducibilidad(),
+        stage=args.stage,
+    )
 
 
 if __name__ == "__main__":
