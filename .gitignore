@@ -13,6 +13,7 @@ mlartifacts/
 # --- Figuras generadas por los scripts (se guardan como artefactos en MLflow) ---
 /reports/figures/*
 !/reports/figures/.gitkeep
+/reports/data-validation/
 
 # --- Secretos y variables de entorno ---
 .env

@@ -46,8 +46,9 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 ├── README.md
 ├── config.py              # Rutas, fechas, filtros AMG, MLflow y modelos/hiperparámetros por defecto
 ├── pyproject.toml         # Metadatos del proyecto y configuración de ruff
-├── python_env.yaml        # Entorno del MLproject (mismas versiones que requirements.txt)
+├── python_env.yaml        # Dependencias de runtime para MLproject (Python 3.12)
 ├── requirements.txt       # Dependencias con versión fija (Python 3.12)
+├── requirements-validation.txt # Dependencias aisladas para DeepChecks
 ├── data/                  # No versionado
 │   ├── raw/               # CSV originales de MiBici
 │   ├── interim/           # viajes_amg_limpios.parquet
@@ -63,18 +64,66 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 │   └── manifiesto_datos.json        # Versión de los datos crudos (SHA-256)
 ├── reports/
 │   ├── figures/           # Figuras generadas (también se guardan como artefactos en MLflow)
+│   ├── evidence/           # Capturas de pytest y DeepChecks
 │   └── parte-c-model-registry.md  # Comparación y justificación de modelos promovidos
-└── src/
-    ├── dataset.py         # Verificación de versión, limpieza y filtrado AMG
-    ├── features.py        # Malla horaria, variables cíclicas, rezagos, targets P2 y perfiles P3
-    ├── tracking.py        # Utilidades comunes de MLflow (tags, parámetros, verificación de datos)
-    ├── train.py           # Entrena un modelo (pregunta, modelo, hiperparámetros); usado por MLproject
-    ├── search.py          # Búsqueda Optuna con runs anidados y validación temporal
-    ├── register_models.py # Registra los modelos elegidos y promueve el alias champion
-    ├── train_regresion.py       # Baselines P1
-    ├── train_clasificacion.py   # Baselines P2
-    └── train_clustering.py      # Baseline P3
+├── src/
+│   ├── dataset.py         # Verificación de versión, limpieza y filtrado AMG
+│   ├── features.py        # Malla horaria, variables cíclicas, rezagos, targets P2 y perfiles P3
+│   ├── data_validation.py # Integridad de datos y drift train/test con DeepChecks
+│   ├── p1_schema.py       # Target y features compartidos por entrenamiento y validación P1
+│   ├── tracking.py        # Utilidades comunes de MLflow (tags, parámetros, verificación de datos)
+│   ├── train.py           # Entrena un modelo (pregunta, modelo, hiperparámetros); usado por MLproject
+│   ├── search.py          # Búsqueda Optuna con runs anidados y validación temporal
+│   ├── register_models.py # Registra los modelos elegidos y promueve el alias champion
+│   ├── train_regresion.py       # Baselines P1
+│   ├── train_clasificacion.py   # Baselines P2
+│   └── train_clustering.py      # Baseline P3
+└── tests/
+    ├── test_features.py         # Malla horaria y rezagos temporales
+    └── test_training.py         # Métricas y reproducibilidad P1
 ```
+
+## Pruebas y validación de datos
+
+Instala las dependencias desde la raíz con Python 3.12 y el entorno virtual activado:
+
+```powershell
+pip install -r requirements.txt
+```
+
+Ejecuta las pruebas unitarias:
+
+```powershell
+python -m pytest -v
+```
+
+Las pruebas cubren la generación de la malla horaria, los rezagos y el mínimo de historia
+para los features, métricas de regresión en casos normales y constantes, y la reproducción
+exacta de predicciones P1 al entrenar dos veces con la misma semilla.
+
+DeepChecks usa un entorno aislado porque su versión actual es incompatible con
+scikit-learn 1.9.1 y NumPy 2.5.3, fijados para el entrenamiento. Crea y activa un entorno
+Python 3.12 independiente:
+
+```powershell
+python -m venv .venv-validation
+.\.venv-validation\Scripts\Activate.ps1
+pip install -r requirements-validation.txt
+python -m src.data_validation
+```
+
+El comando requiere `data/processed/features_demanda_p1.parquet`, generado con los pasos
+de ingesta y features anteriores. DeepChecks valida la integridad y los tipos del conjunto
+de entrenamiento, además de comparar las distribuciones entre los periodos temporales de
+entrenamiento y prueba. Se crean informes HTML en `reports/data-validation/`; los
+hallazgos que requieren revisión aparecen en la terminal y en los informes. La validación
+no cambia los datos ni los modelos.
+
+Capturas de una ejecución exitosa:
+
+| Pruebas unitarias | DeepChecks |
+|---|---|
+| ![Ejecución exitosa de pytest](reports/evidence/pytest-tests.png) | ![Ejecución exitosa de DeepChecks](reports/evidence/deepchecks-validation.png) |
 
 ## Reproducción desde un clon limpio
 

@@ -1,0 +1,8 @@
+# Entorno aislado: DeepChecks 0.19.1 requiere scikit-learn 1.x y NumPy 1.x.
+numpy==1.26.4
+pandas==3.0.6
+pyarrow==25.0.1
+scikit-learn==1.5.2
+deepchecks==0.19.1
+setuptools==80.9.0
+anywidget==0.9.18
