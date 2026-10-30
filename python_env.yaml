@@ -1,7 +1,7 @@
 python: "3.12.10"
 build_dependencies:
   - pip
-# Mismas versiones fijas que requirements.txt
+# Dependencias de runtime; pytest se instala en el entorno de desarrollo local.
 dependencies:
   - ipykernel==6.29.5
   - matplotlib==3.11.2
