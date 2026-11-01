@@ -20,6 +20,16 @@ requirements:
 
 
 
+## Run unit tests with pytest
+.PHONY: test
+test:
+	$(PYTHON_INTERPRETER) -m pytest -v
+
+## Run bandit security scan on source code
+.PHONY: security
+security:
+	$(PYTHON_INTERPRETER) -m bandit -r src/ -ll
+
 ## Delete all compiled Python files
 .PHONY: clean
 clean:

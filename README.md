@@ -83,7 +83,7 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
     └── test_training.py         # Métricas y reproducibilidad P1
 ```
 
-## Pruebas y validación de datos
+## Pruebas, validación de datos y seguridad
 
 Instala las dependencias desde la raíz con Python 3.12 y el entorno virtual activado:
 
@@ -91,15 +91,21 @@ Instala las dependencias desde la raíz con Python 3.12 y el entorno virtual act
 pip install -r requirements.txt
 ```
 
+### Pruebas unitarias
+
 Ejecuta las pruebas unitarias:
 
 ```powershell
 python -m pytest -v
+# o bien:
+make test
 ```
 
 Las pruebas cubren la generación de la malla horaria, los rezagos y el mínimo de historia
 para los features, métricas de regresión en casos normales y constantes, y la reproducción
 exacta de predicciones P1 al entrenar dos veces con la misma semilla.
+
+### Validación de datos con DeepChecks
 
 DeepChecks usa un entorno aislado porque su versión actual es incompatible con
 scikit-learn 1.9.1 y NumPy 2.5.3, fijados para el entrenamiento. Crea y activa un entorno
@@ -119,11 +125,35 @@ entrenamiento y prueba. Se crean informes HTML en `reports/data-validation/`; lo
 hallazgos que requieren revisión aparecen en la terminal y en los informes. La validación
 no cambia los datos ni los modelos.
 
-Capturas de una ejecución exitosa:
+### Chequeos de seguridad
 
-| Pruebas unitarias | DeepChecks |
-|---|---|
-| ![Ejecución exitosa de pytest](reports/evidence/pytest-tests.png) | ![Ejecución exitosa de DeepChecks](reports/evidence/deepchecks-validation.png) |
+El repositorio protege datos sensibles de dos formas:
+
+1. **`.gitignore`:** excluye `.env`, cualquier variante de archivo de entorno, datos crudos,
+   modelos, bases de datos SQLite y entornos virtuales, impidiendo que lleguen al historial de Git.
+
+2. **Análisis estático con `bandit`:** escanea el código fuente en busca de patrones inseguros
+   (credenciales en duro, uso de `subprocess` sin sanitizar, deserialización insegura, etc.).
+
+```powershell
+python -m bandit -r src/ -ll
+# o bien:
+make security
+```
+
+La flag `-ll` filtra solo hallazgos de severidad media o alta. Una ejecución limpia termina
+con `No issues identified.`; cualquier hallazgo aparece con el archivo, la línea y la
+descripción del riesgo.
+
+**Revisión realizada:** bandit reportó inicialmente `B310` (medium) en `src/dataset.py:62`
+por el uso de `urllib.request.urlopen`. Tras revisión se confirmó que la URL proviene
+exclusivamente de `URLS_RAW` en `config.py` (valores fijos del portal de MiBici), no de
+entrada del usuario, por lo que se suprimió con `# nosec B310` y se documentó en el
+código. El rescan posterior retorna `No issues identified.` a severidad media/alta.
+
+| Pruebas unitarias | DeepChecks | Bandit |
+|---|---|---|
+| ![Ejecución exitosa de pytest](reports/evidence/pytest-tests.png) | ![Ejecución exitosa de DeepChecks](reports/evidence/deepchecks-validation.png) | ![Análisis de seguridad con bandit](reports/evidence/bandit-security.png) |
 
 ## Reproducción desde un clon limpio
 

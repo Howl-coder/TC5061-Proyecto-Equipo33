@@ -59,7 +59,7 @@ def descargar_datos_crudos(forzar: bool = False) -> None:
             continue
         print(f"Descargando {nombre} ...")
         solicitud = urllib.request.Request(url, headers=HEADERS_DESCARGA)
-        with urllib.request.urlopen(solicitud) as respuesta, open(destino, "wb") as archivo:
+        with urllib.request.urlopen(solicitud) as respuesta, open(destino, "wb") as archivo:  # nosec B310 — URL proviene de URLS_RAW en config.py, no de entrada del usuario
             while bloque := respuesta.read(1 << 20):
                 archivo.write(bloque)
         print(f"  -> {destino.stat().st_size / 1e6:.1f} MB")
