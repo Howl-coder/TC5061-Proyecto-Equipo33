@@ -6,3 +6,4 @@ scikit-learn==1.5.2
 deepchecks==0.19.1
 setuptools==80.9.0
 anywidget==0.9.18
+pytest==9.0.3
