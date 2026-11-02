@@ -13,10 +13,21 @@ mlartifacts/
 # --- Figuras generadas por los scripts (se guardan como artefactos en MLflow) ---
 /reports/figures/*
 !/reports/figures/.gitkeep
+/reports/data-validation/
 
 # --- Secretos y variables de entorno ---
 .env
 .env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.pypirc
+.netrc
+credentials*.json
+secrets*.json
+service-account*.json
 
 # --- Entornos virtuales ---
 .venv*/

@@ -46,8 +46,9 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 ├── README.md
 ├── config.py              # Rutas, fechas, filtros AMG, MLflow y modelos/hiperparámetros por defecto
 ├── pyproject.toml         # Metadatos del proyecto y configuración de ruff
-├── python_env.yaml        # Entorno del MLproject (mismas versiones que requirements.txt)
+├── python_env.yaml        # Dependencias de runtime para MLproject (Python 3.12)
 ├── requirements.txt       # Dependencias con versión fija (Python 3.12)
+├── requirements-validation.txt # Dependencias aisladas para DeepChecks
 ├── data/                  # No versionado
 │   ├── raw/               # CSV originales de MiBici
 │   ├── interim/           # viajes_amg_limpios.parquet
@@ -63,18 +64,166 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 │   └── manifiesto_datos.json        # Versión de los datos crudos (SHA-256)
 ├── reports/
 │   ├── figures/           # Figuras generadas (también se guardan como artefactos en MLflow)
+│   ├── evidence/           # Capturas y logs de pytest, DeepChecks, Bandit y pip-audit
 │   └── parte-c-model-registry.md  # Comparación y justificación de modelos promovidos
-└── src/
-    ├── dataset.py         # Verificación de versión, limpieza y filtrado AMG
-    ├── features.py        # Malla horaria, variables cíclicas, rezagos, targets P2 y perfiles P3
-    ├── tracking.py        # Utilidades comunes de MLflow (tags, parámetros, verificación de datos)
-    ├── train.py           # Entrena un modelo (pregunta, modelo, hiperparámetros); usado por MLproject
-    ├── search.py          # Búsqueda Optuna con runs anidados y validación temporal
-    ├── register_models.py # Registra los modelos elegidos y promueve el alias champion
-    ├── train_regresion.py       # Baselines P1
-    ├── train_clasificacion.py   # Baselines P2
-    └── train_clustering.py      # Baseline P3
+├── src/
+│   ├── dataset.py         # Verificación de versión, limpieza y filtrado AMG
+│   ├── features.py        # Malla horaria, variables cíclicas, rezagos, targets P2 y perfiles P3
+│   ├── data_validation.py # Integridad de datos y drift train/test con DeepChecks
+│   ├── p1_schema.py       # Target y features compartidos por entrenamiento y validación P1
+│   ├── tracking.py        # Utilidades comunes de MLflow (tags, parámetros, verificación de datos)
+│   ├── train.py           # Entrena un modelo (pregunta, modelo, hiperparámetros); usado por MLproject
+│   ├── search.py          # Búsqueda Optuna con runs anidados y validación temporal
+│   ├── register_models.py # Registra los modelos elegidos y promueve el alias champion
+│   ├── train_regresion.py       # Baselines P1
+│   ├── train_clasificacion.py   # Baselines P2
+│   └── train_clustering.py      # Baseline P3
+└── tests/                           # Un archivo de pruebas por módulo de src/
+    ├── test_dataset.py              # SHA-256, manifiesto y catálogo AMG
+    ├── test_features.py             # Malla horaria, rezagos, target P2 y perfiles P3
+    ├── test_data_validation.py      # Esquema y suites DeepChecks (entorno de validación)
+    ├── test_train.py                # Parseo de hiperparámetros del CLI
+    ├── test_search.py               # Partición temporal de validación y purga
+    ├── test_train_regresion.py      # Métricas y reproducibilidad P1
+    ├── test_train_clasificacion.py  # Métricas y reproducibilidad P2
+    └── test_train_clustering.py     # Reproducibilidad P3
 ```
+
+## Pruebas, validación de datos y seguridad
+
+Resumen de comandos (desde la raíz del repositorio). La evidencia de cada uno está en
+[Evidencia de ejecución](#evidencia-de-ejecución).
+
+| Chequeo | Entorno | Comando | Resultado esperado |
+|---|---|---|---|
+| Pruebas unitarias | `.venv` | `python -m pytest` (o `make test`) | 40 passed, 1 skipped |
+| Pruebas de validación de datos | `.venv-validation` | `python -m pytest tests/test_data_validation.py` | 9 passed |
+| Validación de datos (DeepChecks) | `.venv-validation` | `python -m src.data_validation` | Código de salida 0, sin checks bloqueantes |
+| Análisis estático de seguridad | `.venv` | `python -m bandit -c pyproject.toml -r src config.py` | No issues identified |
+| Vulnerabilidades en dependencias | `.venv` | `python -m pip_audit -r requirements.txt` (ver [Chequeos de seguridad](#chequeos-de-seguridad)) | No known vulnerabilities found |
+
+Instala las dependencias desde la raíz con Python 3.12 y el entorno virtual activado:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### Pruebas unitarias
+
+Ejecuta todas las pruebas unitarias desde la raíz con un solo comando:
+
+```powershell
+python -m pytest -v
+# o bien:
+make test
+```
+
+La configuración de pytest está en [pyproject.toml](pyproject.toml): busca en `tests/`, agrega
+la raíz del proyecto al `PYTHONPATH` y muestra el motivo de las pruebas omitidas. Cada archivo
+`tests/test_<módulo>.py` prueba el módulo homónimo de `src/`, con casos normales, casos límite
+y reproducibilidad del entrenamiento P1, P2 y P3 con la misma semilla. Las pruebas de
+`test_data_validation.py` se omiten si DeepChecks no está instalado.
+
+### Validación de datos con DeepChecks
+
+DeepChecks usa un entorno aislado porque su versión actual es incompatible con
+scikit-learn 1.9.1 y NumPy 2.5.3, fijados para el entrenamiento. Crea y activa un entorno
+Python 3.12 independiente:
+
+```powershell
+python -m venv .venv-validation
+.\.venv-validation\Scripts\Activate.ps1
+pip install -r requirements-validation.txt
+python -m pytest tests/test_data_validation.py   # pruebas del módulo de validación
+python -m src.data_validation                   # validación del dataset real
+```
+
+El comando requiere `data/processed/features_demanda_p1.parquet`, generado con los pasos
+de ingesta y features anteriores. Primero se valida el esquema (columnas, tipos, target no
+negativo y llave estación-hora única) y luego se ejecutan tres suites de DeepChecks, cada
+una con su informe HTML en `reports/data-validation/`:
+
+| Suite | Severidad | Checks |
+|---|---|---|
+| `integridad` | Bloqueante | Tipos mixtos, % de nulos, tipos de nulos, duplicados y columnas constantes (en train y test) |
+| `particion` | Bloqueante | Tamaño de train/test y fuga temporal (fechas de test anteriores al fin de train) |
+| `drift` | Advertencia | Drift por variable, del target y multivariado, y estaciones nuevas en test |
+
+Si el esquema o un check bloqueante falla, el comando termina con código 1. Los hallazgos
+de drift se reportan pero no detienen el proceso. La validación no cambia los datos ni
+los modelos.
+
+### Chequeos de seguridad
+
+**Secretos y configuración.** Ninguna credencial se escribe en el código. La configuración
+sensible o dependiente del equipo se lee de variables de entorno (`config.py` carga un
+`.env` local con `python-dotenv`; las variables del sistema tienen prioridad). Copia
+[.env.example](.env.example) como `.env` y ajusta los valores; `.env`, llaves (`*.pem`,
+`*.key`), archivos de credenciales, `mlflow.db`, `mlruns/` y `data/` están en
+[.gitignore](.gitignore). Se verificó que ningún archivo versionado ni el historial de Git
+contengan `.env`, contraseñas, tokens ni llaves.
+
+**Análisis automático.** Con el entorno de entrenamiento activo:
+
+```powershell
+python -m bandit -c pyproject.toml -r src config.py           # análisis estático del código
+python -m pip_audit -r requirements.txt                        # CVEs en dependencias
+python -m pip_audit -r requirements-validation.txt `
+    --ignore-vuln PYSEC-2026-3447 --ignore-vuln GHSA-xmj3-9gf7-h52w
+```
+
+(o `make security`). Resultado actual: Bandit y pip-audit sin hallazgos abiertos. Para ver solo
+hallazgos de severidad media o alta, agrega `-ll` a bandit.
+
+| Hallazgo | Acción |
+|---|---|
+| Bandit B310: `urlopen` acepta esquemas como `file://` | La URL proviene solo de `URLS_VIAJES_RAW` en `config.py` (valores fijos del portal MiBici); además se valida que sea `https` antes de abrirla y se suprime con `# nosec B310` |
+| Bandit B404/B603/B607: `subprocess` con ruta parcial a `git` | Se resuelve la ruta absoluta con `shutil.which`; argumentos fijos y sin shell |
+| mlflow 3.16.1: CVE-2026-53995, CVE-2026-115886, CVE-2026-116691 | Actualizado a 3.17.2 |
+| pytest 8.4.2: PYSEC-2026-1845 | Actualizado a 9.0.3 |
+| setuptools 80.9.0 (solo entorno DeepChecks): PYSEC-2026-3447, GHSA-xmj3-9gf7-h52w | Riesgo aceptado: setuptools ≥ 81 elimina `pkg_resources`, que DeepChecks 0.19.1 necesita. Ambas fallas afectan la construcción de sdists y la instalación de wheels no confiables; el entorno aislado solo instala paquetes fijados de PyPI y no construye paquetes |
+
+Los modelos se serializan con `skops` (no `pickle`) declarando explícitamente los tipos
+confiables, y los hiperparámetros por CLI se leen con `ast.literal_eval`, nunca con `eval`.
+
+## Evidencia de ejecución
+
+Capturas de la ejecución exitosa de cada chequeo (2026-11-01, Windows, Python 3.12.13).
+Junto a cada imagen está la salida completa en texto en [reports/evidence/](reports/evidence/).
+
+**Pruebas unitarias** — `python -m pytest -v` en `.venv`: 40 pasan; `test_data_validation.py`
+se omite porque DeepChecks vive en su propio entorno ([log](reports/evidence/pytest-tests.txt)).
+
+![Ejecución exitosa de pytest](reports/evidence/pytest-tests.png)
+
+**Pruebas de validación de datos** — `python -m pytest tests/test_data_validation.py -v` en
+`.venv-validation`: 9 pasan ([log](reports/evidence/pytest-data-validation.txt)).
+
+![Ejecución exitosa de las pruebas de validación](reports/evidence/pytest-data-validation.png)
+
+**DeepChecks sobre el dataset real** — `python -m src.data_validation`: integridad, partición
+y drift sin checks fallidos, código de salida 0 ([log](reports/evidence/deepchecks-validation.txt)).
+
+![Ejecución exitosa de DeepChecks](reports/evidence/deepchecks-validation.png)
+
+**Bandit** — sin hallazgos; los 3 omitidos son los `# nosec` justificados en la tabla de
+[Chequeos de seguridad](#chequeos-de-seguridad) ([log](reports/evidence/bandit.txt)).
+
+![Ejecución exitosa de Bandit](reports/evidence/bandit.png)
+
+Escaneo inicial con `bandit -r src/ -ll` (solo severidad media/alta) tras suprimir B310; los 3
+hallazgos de severidad baja de `subprocess` se corrigieron después:
+
+![Escaneo inicial de Bandit con -ll](reports/evidence/bandit-security.png)
+
+**pip-audit** — sin vulnerabilidades conocidas en `requirements.txt`
+([log](reports/evidence/pip-audit.txt)) ni en `requirements-validation.txt`, salvo las de
+setuptools aceptadas explícitamente ([log](reports/evidence/pip-audit-validation.txt)).
+
+![Ejecución exitosa de pip-audit](reports/evidence/pip-audit.png)
+![Ejecución exitosa de pip-audit del entorno de validación](reports/evidence/pip-audit-validation.png)
 
 ## Reproducción desde un clon limpio
 

@@ -25,6 +25,7 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+from src.p1_schema import FEATURES, TARGET
 from src.tracking import (
     SKOPS_TIPOS_CONFIABLES,
     configurar_experimento,
@@ -32,21 +33,12 @@ from src.tracking import (
     tags_run,
 )
 
-TARGET = "demanda_salidas"
-FEATURES = [
-    "hora_sin",
-    "hora_cos",
-    "dia_sin",
-    "dia_cos",
-    "es_fin_de_semana",
-    "lag_salidas_1h",
-    "lag_salidas_2h",
-    "lag_salidas_3h",
-    "lag_salidas_24h",
-    "lag_salidas_168h",
-    "rolling_mean_6h",
-]
 TIPOS_NAIVE = {"lag_salidas_1h": "naive_persistencia", "lag_salidas_168h": "naive_estacional"}
+
+
+def crear_modelo_regresion(hiperparams: dict) -> HistGradientBoostingRegressor:
+    """Construye el estimador P1 con la semilla global del proyecto."""
+    return HistGradientBoostingRegressor(**hiperparams, random_state=RANDOM_STATE)
 
 
 def metricas_regresion(y_true, y_pred) -> dict:
@@ -190,7 +182,7 @@ def entrenar(
             train,
             test,
             params_base,
-            modelo=HistGradientBoostingRegressor(**hiperparams, random_state=RANDOM_STATE),
+            modelo=crear_modelo_regresion(hiperparams),
             stage=stage,
             nested=nested,
         )

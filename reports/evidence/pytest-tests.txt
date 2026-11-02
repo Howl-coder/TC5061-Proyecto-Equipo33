@@ -1,0 +1,55 @@
+PS C:\Repos\MiBiciEquipo33> python -m pytest -v
+================================================ test session starts ================================================
+platform win32 -- Python 3.12.13, pytest-9.0.3, pluggy-1.7.0 -- C:\Repos\MiBiciEquipo33\.venv\Scripts\python.exe
+rootdir: C:\Repos\MiBiciEquipo33
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.15.1, platformdirs-4.13.5
+collecting ... collected 40 items / 1 skipped
+
+tests/test_dataset.py::test_sha256_archivo_coincide_con_hash_conocido[abc-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad] PASSED [  2%]
+tests/test_dataset.py::test_sha256_archivo_coincide_con_hash_conocido[-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855] PASSED [  5%]
+tests/test_dataset.py::test_sha256_archivo_lee_por_bloques_archivos_grandes PASSED                             [  7%]
+tests/test_dataset.py::test_generar_manifiesto_describe_archivos_y_es_determinista PASSED                      [ 10%]
+tests/test_dataset.py::test_generar_manifiesto_detecta_cambios_en_los_datos PASSED                             [ 12%]
+tests/test_dataset.py::test_generar_manifiesto_falla_si_falta_un_archivo PASSED                                [ 15%]
+tests/test_dataset.py::test_cargar_catalogo_amg_filtra_por_bounding_box_incluyendo_bordes PASSED               [ 17%]
+tests/test_dataset.py::test_cargar_catalogo_amg_recurre_a_latin1_si_no_es_utf8 PASSED                          [ 20%]
+tests/test_features.py::test_generar_malla_rellena_sin_viajes_con_cero PASSED                                  [ 22%]
+tests/test_features.py::test_calcular_features_respeta_rezagos_y_minimo_de_historia PASSED                     [ 25%]
+tests/test_features.py::test_calcular_features_devuelve_vacio_si_no_hay_historia_suficiente PASSED             [ 27%]
+tests/test_features.py::test_generar_malla_no_modifica_conteos_con_varias_estaciones_y_viajes_largos PASSED    [ 30%]
+tests/test_features.py::test_target_desbalance_usa_balance_futuro_y_rezagos_por_estacion PASSED                [ 32%]
+tests/test_features.py::test_target_desbalance_descarta_estaciones_fuera_del_catalogo PASSED                   [ 35%]
+tests/test_features.py::test_target_desbalance_devuelve_vacio_si_la_serie_es_mas_corta_que_el_horizonte PASSED [ 37%]
+tests/test_features.py::test_perfil_estaciones_calcula_proporciones_y_uso PASSED                               [ 40%]
+tests/test_features.py::test_perfil_estaciones_casos_limite PASSED                                             [ 42%]
+tests/test_search.py::test_partir_validacion_separa_ventana_de_julio_sin_traslape PASSED                       [ 45%]
+tests/test_search.py::test_partir_validacion_aplica_purga_antes_de_validacion PASSED                           [ 47%]
+tests/test_search.py::test_partir_validacion_rechaza_purga_negativa PASSED                                     [ 50%]
+tests/test_search.py::test_partir_validacion_falla_sin_historia_previa PASSED                                  [ 52%]
+tests/test_train.py::test_parsear_hiperparams_casos_validos[C=0.5,max_iter=2000-esperado0] PASSED              [ 55%]
+tests/test_train.py::test_parsear_hiperparams_casos_validos[ C = 2 , max_iter=10 -esperado1] PASSED            [ 57%]
+tests/test_train.py::test_parsear_hiperparams_casos_validos[class_weight=balanced-esperado2] PASSED            [ 60%]
+tests/test_train.py::test_parsear_hiperparams_casos_validos[class_weight=None-esperado3] PASSED                [ 62%]
+tests/test_train.py::test_parsear_hiperparams_casos_validos[C=0.5,,-esperado4] PASSED                          [ 65%]
+tests/test_train.py::test_parsear_hiperparams_casos_validos[config-esperado5] PASSED                           [ 67%]
+tests/test_train.py::test_parsear_hiperparams_casos_validos[-esperado6] PASSED                                 [ 70%]
+tests/test_train.py::test_parsear_hiperparams_rechaza_claves_desconocidas_o_sin_valor[gamma=1] PASSED          [ 72%]
+tests/test_train.py::test_parsear_hiperparams_rechaza_claves_desconocidas_o_sin_valor[C] PASSED                [ 75%]
+tests/test_train.py::test_parsear_hiperparams_rechaza_claves_desconocidas_o_sin_valor[C=1,penalty=l1] PASSED   [ 77%]
+tests/test_train_clasificacion.py::test_metricas_clasificacion_caso_perfecto PASSED                            [ 80%]
+tests/test_train_clasificacion.py::test_metricas_clasificacion_umbral_es_inclusivo PASSED                      [ 82%]
+tests/test_train_clasificacion.py::test_metricas_clasificacion_sin_positivos_predichos_no_divide_entre_cero PASSED [ 85%]
+tests/test_train_clasificacion.py::test_entrenamiento_p2_es_reproducible_con_la_misma_semilla[histgb] PASSED   [ 87%]
+tests/test_train_clasificacion.py::test_entrenamiento_p2_es_reproducible_con_la_misma_semilla[logreg] PASSED   [ 90%]
+tests/test_train_clustering.py::test_clustering_p3_es_reproducible_con_la_misma_semilla PASSED                 [ 92%]
+tests/test_train_regresion.py::test_metricas_regresion_caso_normal_y_caso_constante PASSED                     [ 95%]
+tests/test_train_regresion.py::test_entrenamiento_p1_es_reproducible_con_la_misma_semilla PASSED               [ 97%]
+tests/test_train_regresion.py::test_entrenamiento_p1_con_early_stopping_reproduce_metricas PASSED              [100%]
+
+============================================== short test summary info ==============================================
+SKIPPED [1] tests\test_data_validation.py:5: could not import 'deepchecks': No module named 'deepchecks'
+=========================================== 40 passed, 1 skipped in 8.81s ===========================================
+
+Exit code: 0

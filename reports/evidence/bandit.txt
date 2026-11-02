@@ -1,0 +1,25 @@
+PS C:\Repos\MiBiciEquipo33> python -m bandit -c pyproject.toml -r src config.py
+Run started:2026-11-02 02:32:39.916932+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 1788
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 3
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+Files skipped (0):
+
+Exit code: 0

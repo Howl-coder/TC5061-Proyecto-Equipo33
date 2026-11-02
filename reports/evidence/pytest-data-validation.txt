@@ -1,0 +1,21 @@
+PS C:\Repos\MiBiciEquipo33> python -m pytest tests/test_data_validation.py -v   # entorno .venv-validation
+================================================ test session starts ================================================
+platform win32 -- Python 3.12.13, pytest-9.0.3, pluggy-1.7.0 -- C:\Repos\MiBiciEquipo33\.venv-validation\Scripts\python.exe
+rootdir: C:\Repos\MiBiciEquipo33
+configfile: pyproject.toml
+plugins: anyio-4.16.0, platformdirs-4.14.3
+collecting ... collected 9 items
+
+tests/test_data_validation.py::test_esquema_valido_no_reporta_problemas PASSED                                 [ 11%]
+tests/test_data_validation.py::test_esquema_detecta_columnas_faltantes PASSED                                  [ 22%]
+tests/test_data_validation.py::test_esquema_detecta_tipos_target_negativo_y_llave_repetida PASSED              [ 33%]
+tests/test_data_validation.py::test_validar_datasets_rechaza_esquema_invalido PASSED                           [ 44%]
+tests/test_data_validation.py::test_validar_datasets_rechaza_conjuntos_vacios PASSED                           [ 55%]
+tests/test_data_validation.py::test_integridad_pasa_con_datos_limpios PASSED                                   [ 66%]
+tests/test_data_validation.py::test_integridad_detecta_nulos_y_duplicados PASSED                               [ 77%]
+tests/test_data_validation.py::test_particion_detecta_fuga_temporal PASSED                                     [ 88%]
+tests/test_data_validation.py::test_particion_pasa_con_corte_temporal_correcto PASSED                          [100%]
+
+================================================= 9 passed in 7.82s =================================================
+
+Exit code: 0

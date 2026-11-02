@@ -40,10 +40,10 @@ P3 (vector por estación, ``construir_perfil_estaciones``):
 - ``prop_fin_de_semana``, ``prop_circulares``, ``prop_salidas``, ``viajes_por_dia``,
   ``uso_por_capacidad``: intensidad y tipo de uso de la estación.
 """
-from pathlib import Path
+from config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR
 import numpy as np
 import pandas as pd
-from config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR
+
 
 def generar_malla_demanda_horaria(df_viajes: pd.DataFrame, ids_estaciones: list) -> pd.DataFrame:
     """Construye la malla regular hora x estación con imputación de demanda cero.
@@ -83,8 +83,11 @@ def generar_malla_demanda_horaria(df_viajes: pd.DataFrame, ids_estaciones: list)
     # Rango horario completo continuo
     rango_horas = pd.date_range(
         start=df_viajes["timestamp_hora"].min(),
-        end=df_viajes["timestamp_hora"].max(),
-        freq="h"
+        end=max(
+            df_viajes["timestamp_hora"].max(),
+            df_viajes["timestamp_fin_hora"].max(),
+        ),
+        freq="h",
     )
 
     # Producto cartesiano completo
@@ -245,7 +248,7 @@ if __name__ == "__main__":
     print(f"Cargando {ruta_interim.name}...")
     df_viajes = pd.read_parquet(ruta_interim)
 
-    estaciones = sorted(list(df_viajes["Origen_Id"].unique()))
+    estaciones = sorted(df_viajes["Origen_Id"].unique())
     print(f"Generando malla horaria para {len(estaciones)} estaciones...")
     df_malla = generar_malla_demanda_horaria(df_viajes, estaciones)
 
