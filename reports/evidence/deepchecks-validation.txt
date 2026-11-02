@@ -1,0 +1,7 @@
+PS C:\Repos\MiBiciEquipo33> python -m src.data_validation   # entorno .venv-validation
+[BLOQUEANTE] integridad: 0 check(s) sin pasar: ninguno. Reporte: C:\Repos\MiBiciEquipo33\reports\data-validation\integridad.html
+[BLOQUEANTE] particion: 0 check(s) sin pasar: ninguno. Reporte: C:\Repos\MiBiciEquipo33\reports\data-validation\particion.html
+[advertencia] drift: 0 check(s) sin pasar: ninguno. Reporte: C:\Repos\MiBiciEquipo33\reports\data-validation\drift.html
+Validación DeepChecks completada sin problemas bloqueantes.
+
+Exit code: 0

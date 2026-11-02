@@ -1,0 +1,4 @@
+PS C:\Repos\MiBiciEquipo33> python -m pip_audit -r requirements.txt
+No known vulnerabilities found
+
+Exit code: 0
