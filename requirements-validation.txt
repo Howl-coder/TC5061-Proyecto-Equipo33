@@ -2,6 +2,7 @@
 numpy==1.26.4
 pandas==3.0.6
 pyarrow==25.0.1
+python-dotenv==1.2.4
 scikit-learn==1.5.2
 deepchecks==0.19.1
 # setuptools>=81 elimina pkg_resources, que DeepChecks 0.19.1 importa; ver riesgo aceptado en README.

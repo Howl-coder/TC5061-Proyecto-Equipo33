@@ -18,6 +18,16 @@ mlartifacts/
 # --- Secretos y variables de entorno ---
 .env
 .env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.pypirc
+.netrc
+credentials*.json
+secrets*.json
+service-account*.json
 
 # --- Entornos virtuales ---
 .venv*/

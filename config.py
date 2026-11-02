@@ -1,8 +1,12 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Rutas base del proyecto
 BASE_DIR = Path(__file__).resolve().parent
+# Variables locales (no versionadas); las del entorno del sistema tienen prioridad
+load_dotenv(BASE_DIR / ".env", override=False)
 DATA_DIR = BASE_DIR / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 INTERIM_DATA_DIR = DATA_DIR / "interim"
