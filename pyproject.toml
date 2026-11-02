@@ -24,6 +24,10 @@ pythonpath = ["."]
 addopts = "-ra"
 
 
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", ".venv-validation"]
+
+
 [tool.ruff]
 line-length = 99
 src = ["src"]

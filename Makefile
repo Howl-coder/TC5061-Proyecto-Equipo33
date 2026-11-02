@@ -25,10 +25,13 @@ requirements:
 test:
 	$(PYTHON_INTERPRETER) -m pytest -v
 
-## Run bandit security scan on source code
+## Security scan: bandit (code) + pip-audit (dependencies)
 .PHONY: security
 security:
-	$(PYTHON_INTERPRETER) -m bandit -r src/ -ll
+	$(PYTHON_INTERPRETER) -m bandit -c pyproject.toml -r src config.py
+	$(PYTHON_INTERPRETER) -m pip_audit -r requirements.txt
+	$(PYTHON_INTERPRETER) -m pip_audit -r requirements-validation.txt \
+		--ignore-vuln PYSEC-2026-3447 --ignore-vuln GHSA-xmj3-9gf7-h52w
 
 ## Delete all compiled Python files
 .PHONY: clean

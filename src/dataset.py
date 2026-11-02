@@ -9,6 +9,7 @@ import argparse
 import gc
 import hashlib
 import json
+import urllib.parse
 import urllib.request
 from pathlib import Path
 import pandas as pd
@@ -58,8 +59,11 @@ def descargar_datos_crudos(forzar: bool = False) -> None:
             print(f"Ya existe, omitiendo: {nombre}")
             continue
         print(f"Descargando {nombre} ...")
+        if urllib.parse.urlparse(url).scheme != "https":
+            raise ValueError(f"Solo se permiten descargas HTTPS: {url}")
         solicitud = urllib.request.Request(url, headers=HEADERS_DESCARGA)
-        with urllib.request.urlopen(solicitud) as respuesta, open(destino, "wb") as archivo:  # nosec B310 — URL proviene de URLS_RAW en config.py, no de entrada del usuario
+        # URL fija de config.URLS_VIAJES_RAW y esquema validado como https arriba
+        with urllib.request.urlopen(solicitud) as respuesta, open(destino, "wb") as archivo:  # nosec B310
             while bloque := respuesta.read(1 << 20):
                 archivo.write(bloque)
         print(f"  -> {destino.stat().st_size / 1e6:.1f} MB")

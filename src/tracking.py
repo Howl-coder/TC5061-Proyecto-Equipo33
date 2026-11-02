@@ -1,5 +1,6 @@
 """Utilidades comunes para registrar los runs en MLflow Tracking."""
-import subprocess
+import shutil
+import subprocess  # nosec B404
 
 import mlflow
 
@@ -23,10 +24,14 @@ SKOPS_TIPOS_CONFIABLES = ["sklearn.ensemble._hist_gradient_boosting.predictor.Tr
 
 
 def _git(*args: str) -> str:
+    git = shutil.which("git")
+    if git is None:
+        return "desconocido"
+    # Ruta absoluta de git, argumentos internos y sin shell
     try:
         return subprocess.check_output(
-            ["git", *args], cwd=BASE_DIR, text=True, stderr=subprocess.DEVNULL
-        ).strip()
+            [git, *args], cwd=BASE_DIR, text=True, stderr=subprocess.DEVNULL
+        ).strip()  # nosec B603
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "desconocido"
 
