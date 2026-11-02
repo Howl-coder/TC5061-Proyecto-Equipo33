@@ -27,3 +27,23 @@ def test_entrenamiento_p1_es_reproducible_con_la_misma_semilla():
     segunda = crear_modelo_regresion(hiperparams).fit(x_train, y_train).predict(x_test)
 
     np.testing.assert_array_equal(primera, segunda)
+
+
+def test_entrenamiento_p1_con_early_stopping_reproduce_metricas():
+    # Con early stopping la semilla define la partición interna de validación
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(300, 4))
+    y = 3 * x[:, 0] + rng.normal(scale=0.5, size=300)
+    hiperparams = {
+        **HIPERPARAMS_POR_DEFECTO["p1"]["histgb"],
+        "max_iter": 50,
+        "early_stopping": True,
+        "validation_fraction": 0.2,
+        "n_iter_no_change": 3,
+    }
+
+    def entrenar_y_evaluar():
+        modelo = crear_modelo_regresion(hiperparams).fit(x[:250], y[:250])
+        return modelo.n_iter_, metricas_regresion(y[250:], modelo.predict(x[250:]))
+
+    assert entrenar_y_evaluar() == entrenar_y_evaluar()
