@@ -69,6 +69,8 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 │   ├── figures/           # Figuras generadas (también se guardan como artefactos en MLflow)
 │   ├── evidence/           # Capturas y logs de pytest, DeepChecks, Bandit y pip-audit
 │   └── parte-c-model-registry.md  # Comparación y justificación de modelos promovidos
+├── scripts/
+│   └── probar_contenedor.ps1      # Construye la imagen, la ejecuta y prueba la API
 ├── src/
 │   ├── dataset.py         # Verificación de versión, limpieza y filtrado AMG
 │   ├── features.py        # Malla horaria, variables cíclicas, rezagos, targets P2 y perfiles P3
@@ -418,6 +420,44 @@ python -c "import mlflow.pyfunc; mlflow.pyfunc.load_model('models:/mibici-equipo
 
 ## Parte D — Modelo como servicio
 
+El modelo P1 (demanda de salidas por estación en la próxima hora) se sirve como API REST
+en un contenedor OCI. Motor de contenedores elegido: **Podman** (los comandos de Docker son
+equivalentes; ver la [guía de uso](#6-guía-de-uso-construir-levantar-y-consumir-el-servicio)).
+
+```mermaid
+flowchart LR
+    R["Model Registry<br/>mibici-equipo33-p1-demanda@champion"] -->|src.model_package| M[models/servicio/]
+    M -->|podman build| I["Imagen mibici-api"]
+    I -->|podman run -p 8000:8000| C["Contenedor<br/>FastAPI + uvicorn"]
+    K["Cliente<br/>(tablero, script horario)"] -->|POST /predict JSON| C
+    C -->|predicciones JSON| K
+```
+
+### Estrategia de despliegue: inferencia en línea (tiempo real) con micro-lotes
+
+Se eligió un servicio síncrono que responde en el momento de la petición, en lugar de un
+proceso por lotes que precalcule predicciones:
+
+- **El horizonte es de una hora.** La predicción depende de rezagos de las últimas horas
+  (`lag_salidas_1h`, `rolling_mean_6h`, …) que solo existen cuando termina la hora anterior.
+  Un lote nocturno no puede calcularlos para las horas siguientes y sus resultados quedarían
+  obsoletos en una hora.
+- **El uso es operativo.** El rebalanceo de bicicletas necesita consultar una estación o
+  todo el sistema justo antes de decidir, desde un tablero o un script.
+- **Cubre también el caso por lotes.** `/predict` acepta hasta 1000 instancias por
+  petición, así que las ~480 estaciones del catálogo caben en una sola llamada (por ejemplo,
+  un script al inicio de cada hora) sin otro componente.
+- **Es barato de servir.** El modelo (HistGradientBoosting, `model.skops` de 1.4 MB) corre en CPU; medido
+  desde el host contra el contenedor, la mediana fue de unos 50 ms con 1 instancia y unos
+  20 ms con 480. El servicio no guarda estado, así que se puede escalar con más réplicas
+  detrás de un balanceador.
+- **Es reproducible.** El modelo va dentro de la imagen (ver la sección 1), de modo que cada
+  imagen corresponde a una versión fija del registry.
+
+Limitación: el cliente debe calcular las variables (calendario y rezagos) igual que
+[src/features.py](src/features.py). Un siguiente paso sería un endpoint que reciba solo la
+estación y la hora y obtenga los rezagos de un almacén de features.
+
 ### 1. Recuperación del modelo desde el Model Registry
 
 **Modelo servido:** P1 — regresión de demanda, `models:/mibici-equipo33-p1-demanda@champion`
@@ -482,22 +522,8 @@ uvicorn src.api:app --host 127.0.0.1 --port 8000
 `/predict` recibe de 1 a 1000 instancias con las 11 variables del modelo, tal como las calcula
 [src/features.py](src/features.py): calendario cíclico (`hora_*` con periodo 24, `dia_*` con
 periodo 7 y lunes = 0), `es_fin_de_semana` y rezagos de salidas de la estación. Las
-predicciones negativas se recortan a 0, igual que en la evaluación.
-
-```powershell
-$cuerpo = @{ instancias = @(@{
-    hora_sin = 0.866; hora_cos = -0.5; dia_sin = 0.0; dia_cos = 1.0; es_fin_de_semana = 0
-    lag_salidas_1h = 3; lag_salidas_2h = 2; lag_salidas_3h = 4
-    lag_salidas_24h = 5; lag_salidas_168h = 4; rolling_mean_6h = 3.2
-}) } | ConvertTo-Json -Depth 3
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/predict -ContentType application/json -Body $cuerpo
-```
-
-Forma de la respuesta (valores ilustrativos; dependen de la versión empaquetada):
-
-```json
-{"modelo": "mibici-equipo33-p1-demanda", "version": "1", "target": "demanda_salidas", "predicciones": [3.41]}
-```
+predicciones negativas se recortan a 0, igual que en la evaluación. Hay un ejemplo de
+petición y respuesta en la [guía de uso](#6-guía-de-uso-construir-levantar-y-consumir-el-servicio).
 
 ### 3. Validación de entradas y salidas
 
@@ -537,15 +563,112 @@ entrenó:
 
 [.dockerignore](.dockerignore) (Podman también lo lee) deja en el contexto de construcción solo
 esos archivos, así que `data/`, `mlflow.db`, `mlruns/` y `.env` nunca llegan a la imagen.
-
-```powershell
-python -m src.model_package --pregunta p1        # 1) exporta el modelo del registry
-podman build -t mibici-api:latest .              # 2) construye la imagen
-podman run --rm -p 8000:8000 mibici-api:latest   # 3) sirve en http://127.0.0.1:8000
-# Docker: docker build -f Containerfile -t mibici-api:latest .
-```
+Los comandos para construirla y ejecutarla están en la
+[guía de uso](#6-guía-de-uso-construir-levantar-y-consumir-el-servicio).
 
 La imagen no necesita `MLFLOW_TRACKING_URI` ni acceso a la red. Para servir otra versión,
 vuelve a exportar y reconstruye la imagen. Al arrancar, MLflow puede avisar que `psutil` o
 `rich` (dependencias del entorno de entrenamiento registradas con el modelo) no están
 instalados; no se usan para predecir.
+
+### 5. Construcción y prueba del contenedor
+
+Requisito en Windows: Podman con su máquina virtual (WSL2). La instalación pide permisos de
+administrador:
+
+```powershell
+winget install -e --id RedHat.Podman     # terminal con permisos de administrador
+podman machine init
+podman machine start
+```
+
+[scripts/probar_contenedor.ps1](scripts/probar_contenedor.ps1) construye la imagen, la ejecuta
+en segundo plano, espera a `/health` y comprueba que:
+
+- `GET /modelo` informe el modelo y la versión del registry empaquetados;
+- `POST /predict` con dos instancias (lunes 8:00 y domingo 0:00) devuelva HTTP 200 y dos
+  predicciones ≥ 0;
+- una entrada incoherente (`es_fin_de_semana = 1` en lunes) devuelva HTTP 422.
+
+Al terminar detiene y elimina el contenedor, aunque una comprobación falle.
+
+```powershell
+python -m src.model_package --pregunta p1   # si models/servicio no existe
+.\scripts\probar_contenedor.ps1             # Podman; con Docker: -Motor docker
+```
+
+Modelo empaquetado: `mibici-equipo33-p1-demanda` versión 1 (`@champion`), run
+`606849422b6941c38df8c9039bdcff5d`, commit `c59e6e0`.
+
+**Resultado** (2026-11-08, Windows, Podman 5.8.3 con máquina WSL2): la imagen
+`localhost/mibici-api:latest` (ID `61cf7dd43e72`, 588 MB) se construyó y el contenedor
+respondió correctamente; corre como `uid=10001(mibici)` y se elimina al terminar la prueba
+([log completo](reports/evidence/podman-contenedor.txt)):
+
+```text
+Successfully tagged localhost/mibici-api:latest
+GET /health -> ok
+GET /modelo -> mibici-equipo33-p1-demanda v1 (run 606849422b6941c38df8c9039bdcff5d)
+POST /predict -> {"modelo":"mibici-equipo33-p1-demanda","version":"1","target":"demanda_salidas","predicciones":[4.355850750022855,0.2495090943117954]}
+POST /predict (entrada incoherente) -> 422 {"detail":[{"type":"value_error","loc":["body","instancias",0],"msg":"Value error, es_fin_de_semana no coincide con el día de dia_sin/dia_cos."}]}
+Prueba del contenedor superada.
+```
+
+Para revisar la imagen: `podman images localhost/mibici-api`, `podman history
+localhost/mibici-api:latest` o `podman image inspect localhost/mibici-api:latest`.
+
+### 6. Guía de uso: construir, levantar y consumir el servicio
+
+Requisitos: el modelo exportado en `models/servicio/` (sección 1) y Podman con su máquina
+iniciada (sección 5). Todos los comandos se ejecutan desde la raíz del repositorio.
+
+| Paso | Podman (elegido) | Docker |
+|---|---|---|
+| 1. Construir la imagen | `podman build -t mibici-api:latest .` | `docker build -f Containerfile -t mibici-api:latest .` |
+| 2. Levantar el contenedor | `podman run -d --rm --name mibici-api -p 8000:8000 mibici-api:latest` | `docker run -d --rm --name mibici-api -p 8000:8000 mibici-api:latest` |
+| 3. Comprobar que está listo | `podman ps` y `podman logs mibici-api` | `docker ps` y `docker logs mibici-api` |
+| 4. Detener (y eliminar) | `podman stop mibici-api` | `docker stop mibici-api` |
+
+Podman construye con el `Containerfile` sin indicarlo; Docker necesita `-f Containerfile`.
+Con `-p 8000:8000` la API queda en http://127.0.0.1:8000 y la documentación interactiva en
+http://127.0.0.1:8000/docs. Para usar otro puerto del host: `-p 8080:8000`.
+
+**Consumir la API.** Una vez arriba, `GET /health` devuelve `{"status":"ok"}` y `GET /modelo`
+indica qué versión del registry se sirve. Petición de predicción para una estación un lunes
+a las 8:00 ($\sin(2\pi \cdot 8/24) \approx 0.866$, $\cos(2\pi \cdot 8/24) = -0.5$) que tuvo 3, 2 y
+4 salidas en las tres horas anteriores:
+
+PowerShell:
+
+```powershell
+$cuerpo = @{ instancias = @(@{
+    hora_sin = 0.866; hora_cos = -0.5; dia_sin = 0.0; dia_cos = 1.0; es_fin_de_semana = 0
+    lag_salidas_1h = 3; lag_salidas_2h = 2; lag_salidas_3h = 4
+    lag_salidas_24h = 5; lag_salidas_168h = 4; rolling_mean_6h = 3.2
+}) } | ConvertTo-Json -Depth 3
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/predict -ContentType application/json -Body $cuerpo
+```
+
+bash (Linux, macOS o Git Bash):
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"instancias": [{"hora_sin": 0.866, "hora_cos": -0.5, "dia_sin": 0.0, "dia_cos": 1.0,
+       "es_fin_de_semana": 0, "lag_salidas_1h": 3, "lag_salidas_2h": 2, "lag_salidas_3h": 4,
+       "lag_salidas_24h": 5, "lag_salidas_168h": 4, "rolling_mean_6h": 3.2}]}'
+```
+
+Respuesta del contenedor con la versión 1 empaquetada (HTTP 200):
+
+```json
+{"modelo": "mibici-equipo33-p1-demanda", "version": "1", "target": "demanda_salidas", "predicciones": [4.355850750022855]}
+```
+
+Es decir, se esperan unas 4.4 salidas en esa estación durante la siguiente hora. Para varias
+estaciones u horas se envían varias instancias en la misma lista (máximo 1000) y
+`predicciones` conserva su orden. Si una entrada es inválida la API responde HTTP 422 con el
+campo y el motivo (ver la sección 3).
+
+Para construir, levantar y probar todo de una vez: `.\scripts\probar_contenedor.ps1`
+(`-Motor docker` para Docker).
