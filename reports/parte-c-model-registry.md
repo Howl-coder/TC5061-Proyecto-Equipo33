@@ -1,66 +1,54 @@
 # Parte C — Model Registry y reporte
 
-## Estado
+Promoción registrada: 2026-11-08 20:40 UTC.
 
-La promoción debe ejecutarse después de lanzar y comparar los runs de la Parte B en el
-experimento `mibici-equipo33`. Este repositorio no incluye el backend local `mlflow.db` ni
-registra métricas de experimentos ejecutados; por ello, aquí no se inventan IDs de runs,
-versiones registradas ni resultados de candidatos.
+Se usa el alias MLflow `champion` en vez de las etapas legacy (`Production`), porque los aliases son el mecanismo vigente y permiten mover el nombre de producción sin crear otra versión del modelo.
 
-Los resultados baseline publicados en el README son referencias iniciales, no una
-selección de producción para la Parte C. La decisión definitiva se genera con los
-resultados reales al ejecutar `src.register_models`.
+La promoción registra cada modelo desde su run de origen; los tags de la versión conservan experimento, run, commit, etapa y versión de datos. La duración de entrenamiento se reporta como referencia de costo; el costo de inferencia no se midió en esta entrega.
 
-## Criterios de selección
+## P1 — Pronóstico de demanda por estación
 
-La selección se realiza en la interfaz de MLflow, conservando la partición temporal y
-comparando baselines y candidatos del mismo experimento:
+- **Modelo registrado:** `mibici-equipo33-p1-demanda` versión `1`.
+- **Alias de producción:** `mibici-equipo33-p1-demanda@champion`.
+- **Run de origen:** `606849422b6941c38df8c9039bdcff5d` (`P1-baseline-histgb`).
+- **Familia / etapa:** `HistGradientBoostingRegressor` / `baseline`.
+- **Linaje:** experimento `mibici-equipo33`, commit `c59e6e0c7fa67f9db806ee5a2ec2eff3cd185695`, datos `mibici-datos-abiertos-2026_04-2026_09`.
+- **Duración de entrenamiento:** 86.6 s.
+- **Justificación de selección:** HistGradientBoosting con RMSE 1.481, MAE 0.837 y R2 0.692 en septiembre; mejora clara sobre los baselines naive de persistencia y estacional.
 
-| Pregunta | Métrica principal | Métricas complementarias | Costo considerado |
-|---|---|---|---|
-| P1 — demanda | `test_rmse` (menor es mejor) | `test_mae`, `test_r2` | Duración medida del entrenamiento |
-| P2 — riesgo | `test_recall` (mayor sensibilidad ante estaciones en riesgo) | `test_pr_auc`, `test_f1`, `test_roc_auc` | Duración medida del entrenamiento |
-| P3 — grupos | `silhouette` (mayor separación/cohesión) | `davies_bouldin` (menor es mejor), `calinski_harabasz` | Duración medida del entrenamiento |
+| Run | Etapa | Familia | test_rmse | test_mae | test_r2 | Entrenamiento (s) |
+|---|---|---|---|---|---|---:|
+| `P1-baseline-histgb` **(seleccionado)** | baseline | HistGradientBoostingRegressor | 1.4810 | 0.8373 | 0.6917 | 86.6 |
+| `P1-baseline-histgb` | baseline | HistGradientBoostingRegressor | 1.4810 | 0.8373 | 0.6917 | 388.5 |
 
-La duración es solo una aproximación al costo computacional; no se midió el costo de
-inferencia. La justificación concreta de cada run seleccionado se proporciona al
-registrarlo y se conserva en la descripción de la versión y en el reporte generado.
+## P2 — Riesgo de desbalance de estaciones
 
-Para no usar el test durante la optimización, Optuna ajusta P1 y P2 con abril-junio y
-valida en julio; septiembre se reserva para la evaluación final de baselines y candidatos
-reentrenados con el periodo de entrenamiento. P2 excluye tres horas en los límites de
-entrenamiento por el horizonte de su target. P3 calcula perfiles solo con viajes del
-periodo de entrenamiento y compara silhouette/Davies-Bouldin sin consultar septiembre.
+- **Modelo registrado:** `mibici-equipo33-p2-riesgo` versión `1`.
+- **Alias de producción:** `mibici-equipo33-p2-riesgo@champion`.
+- **Run de origen:** `7f7d3a0333324db9bc5434f6d6d72912` (`P2-baseline-histgb`).
+- **Familia / etapa:** `HistGradientBoostingClassifier` / `baseline`.
+- **Linaje:** experimento `mibici-equipo33`, commit `c59e6e0c7fa67f9db806ee5a2ec2eff3cd185695`, datos `mibici-datos-abiertos-2026_04-2026_09`.
+- **Duración de entrenamiento:** 94.2 s.
+- **Justificación de selección:** HistGradientBoosting con recall 0.881 y PR-AUC 0.339 en septiembre, entrenado con la purga de tres horas; se prioriza recall por el costo de no detectar estaciones en riesgo.
 
-## Registro y ciclo de vida
+| Run | Etapa | Familia | test_recall | test_pr_auc | test_f1 | test_roc_auc | Entrenamiento (s) |
+|---|---|---|---|---|---|---|---:|
+| `P2-baseline-histgb` **(seleccionado)** | baseline | HistGradientBoostingClassifier | 0.8810 | 0.3391 | 0.3207 | 0.8563 | 94.2 |
 
-Se usa el alias MLflow `champion`, en vez de las etapas legacy (`Production`), porque los
-aliases son el esquema vigente. Los nombres estables son:
+## P3 — Segmentación de cicloestaciones
 
-- `mibici-equipo33-p1-demanda`
-- `mibici-equipo33-p2-riesgo`
-- `mibici-equipo33-p3-grupos`
+- **Modelo registrado:** `mibici-equipo33-p3-grupos` versión `1`.
+- **Alias de producción:** `mibici-equipo33-p3-grupos@champion`.
+- **Run de origen:** `6df3267dbe25412188e7a787b30566a2` (`P3-baseline-kmeans`).
+- **Familia / etapa:** `KMeans` / `baseline`.
+- **Linaje:** experimento `mibici-equipo33`, commit `c59e6e0c7fa67f9db806ee5a2ec2eff3cd185695`, datos `mibici-datos-abiertos-2026_04-2026_09`.
+- **Duración de entrenamiento:** 29.3 s.
+- **Justificación de selección:** K-Means con k=3 elegido por silhouette (0.095) y Davies-Bouldin 2.61 sobre perfiles del periodo de entrenamiento.
 
-El script `src.register_models` exige runs finalizados del experimento correcto, la
-pregunta correspondiente, árbol Git limpio, commit, `data_version`, métricas requeridas
-y una firma cargable. Registra cada modelo desde `runs:/<run_id>/modelo`, anota el linaje
-en tags de la versión y comprueba que cada modelo se carga desde la versión y desde
-`models:/<nombre>@champion`. Al completar la promoción, el script reemplaza este archivo
-con la comparación real y las justificaciones indicadas.
+| Run | Etapa | Familia | silhouette | davies_bouldin | calinski_harabasz | Entrenamiento (s) |
+|---|---|---|---|---|---|---:|
+| `P3-baseline-kmeans` **(seleccionado)** | baseline | KMeans | 0.0948 | 2.6091 | 39.2670 | 29.3 |
 
-Ejemplo (reemplaza cada ID y justificación por la decisión tomada tras revisar MLflow):
+## Verificación
 
-```powershell
-python -m src.register_models `
-  --p1-run-id <RUN_ID_P1> --p1-justification "Mejor RMSE que el baseline; MAE y R2 consistentes." `
-  --p2-run-id <RUN_ID_P2> --p2-justification "Recall priorizado para reducir estaciones de riesgo no detectadas." `
-  --p3-run-id <RUN_ID_P3> --p3-justification "Silhouette y Davies-Bouldin favorecen grupos útiles y estables."
-```
-
-Para verificar una vez publicado:
-
-```powershell
-python -c "import mlflow.pyfunc; mlflow.pyfunc.load_model('models:/mibici-equipo33-p1-demanda@champion')"
-python -c "import mlflow.pyfunc; mlflow.pyfunc.load_model('models:/mibici-equipo33-p2-riesgo@champion')"
-python -c "import mlflow.pyfunc; mlflow.pyfunc.load_model('models:/mibici-equipo33-p3-grupos@champion')"
-```
+Los tres modelos se cargaron por su URI de versión y, después de asignar el alias, se volvieron a cargar mediante `models:/<nombre>@champion`. No se registran datos personales de usuarios de MiBici.
