@@ -43,18 +43,21 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 ```text
 ├── Makefile               # make requirements | lint | format | clean
 ├── MLproject              # MLflow Project: entry points ingest, features, train y search
+├── Containerfile          # Imagen OCI de la API (FastAPI + modelo exportado)
+├── .dockerignore          # Contexto mínimo de la imagen (también lo usa Podman)
 ├── README.md
 ├── config.py              # Rutas, fechas, filtros AMG, MLflow y modelos/hiperparámetros por defecto
 ├── pyproject.toml         # Metadatos del proyecto y configuración de ruff
 ├── python_env.yaml        # Dependencias de runtime para MLproject (Python 3.12)
 ├── requirements.txt       # Dependencias con versión fija (Python 3.12)
 ├── requirements-validation.txt # Dependencias aisladas para DeepChecks
+├── requirements-api.txt   # Dependencias mínimas de la imagen de la API
 ├── data/                  # No versionado
 │   ├── raw/               # CSV originales de MiBici
 │   ├── interim/           # viajes_amg_limpios.parquet
 │   └── processed/         # features_demanda_p1.parquet
 ├── docs/
-├── models/                # Modelos locales (no versionados; los oficiales viven en MLflow)
+├── models/                # Modelos locales (no versionados; los oficiales viven en MLflow); servicio/ = modelo exportado para la imagen
 ├── notebooks/
 │   └── 1.0-lcp-exploratorio.ipynb   # Análisis exploratorio (EDA)
 ├── references/
@@ -75,6 +78,8 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 │   ├── train.py           # Entrena un modelo (pregunta, modelo, hiperparámetros); usado por MLproject
 │   ├── search.py          # Búsqueda Optuna con runs anidados y validación temporal
 │   ├── register_models.py # Registra los modelos elegidos y promueve el alias champion
+│   ├── model_package.py   # Descarga del registry el modelo que se empaqueta en el servicio
+│   ├── api.py             # API REST (FastAPI) de predicción P1
 │   ├── train_regresion.py       # Baselines P1
 │   ├── train_clasificacion.py   # Baselines P2
 │   └── train_clustering.py      # Baseline P3
@@ -84,6 +89,8 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
     ├── test_data_validation.py      # Esquema y suites DeepChecks (entorno de validación)
     ├── test_train.py                # Parseo de hiperparámetros del CLI
     ├── test_search.py               # Partición temporal de validación y purga
+    ├── test_model_package.py        # Exportación y carga del modelo del registry
+    ├── test_api.py                  # Endpoints, validación de entradas y arranque de la API
     ├── test_train_regresion.py      # Métricas y reproducibilidad P1
     ├── test_train_clasificacion.py  # Métricas y reproducibilidad P2
     └── test_train_clustering.py     # Reproducibilidad P3
@@ -96,7 +103,7 @@ Resumen de comandos (desde la raíz del repositorio). La evidencia de cada uno e
 
 | Chequeo | Entorno | Comando | Resultado esperado |
 |---|---|---|---|
-| Pruebas unitarias | `.venv` | `python -m pytest` (o `make test`) | 40 passed, 1 skipped |
+| Pruebas unitarias | `.venv` | `python -m pytest` (o `make test`) | 74 passed, 1 skipped |
 | Pruebas de validación de datos | `.venv-validation` | `python -m pytest tests/test_data_validation.py` | 9 passed |
 | Validación de datos (DeepChecks) | `.venv-validation` | `python -m src.data_validation` | Código de salida 0, sin checks bloqueantes |
 | Análisis estático de seguridad | `.venv` | `python -m bandit -c pyproject.toml -r src config.py` | No issues identified |
@@ -408,3 +415,137 @@ Para cargar un modelo promovido:
 ```powershell
 python -c "import mlflow.pyfunc; mlflow.pyfunc.load_model('models:/mibici-equipo33-p1-demanda@champion')"
 ```
+
+## Parte D — Modelo como servicio
+
+### 1. Recuperación del modelo desde el Model Registry
+
+**Modelo servido:** P1 — regresión de demanda, `models:/mibici-equipo33-p1-demanda@champion`
+(también se puede fijar una versión concreta).
+
+**Opción elegida: empaquetar en la imagen el modelo descargado del registry.** El modelo se
+resuelve en el Model Registry por nombre y alias (o versión), se descarga a
+`models/servicio/` y esa carpeta se copia a la imagen. El contenedor no necesita
+`MLFLOW_TRACKING_URI` ni acceso al servidor de MLflow. Se eligió así porque:
+
+- El experimento `mibici-equipo33` guarda sus artefactos en una ruta local del equipo que
+  entrenó (`file:C:/Repos/MiBiciEquipo33/mlruns/1`). El servidor de tracking devuelve esa
+  ruta, no los archivos, así que un contenedor que consultara el registry por
+  `host.containers.internal:5000` encontraría la versión pero no podría descargar el modelo.
+- La imagen queda autocontenida: se comporta igual en cualquier máquina, no depende de que el
+  servidor esté encendido y la versión servida queda fija al construirla. Para cambiar de
+  versión se vuelve a exportar y a construir la imagen.
+
+Con el servidor de MLflow activo (paso 2 de la reproducción) y el modelo ya promovido con
+`src.register_models` (Parte C):
+
+```powershell
+$env:MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
+python -m src.model_package --pregunta p1               # models:/mibici-equipo33-p1-demanda@champion
+python -m src.model_package --pregunta p1 --version 3   # o una versión registrada concreta
+```
+
+[src/model_package.py](src/model_package.py) resuelve el alias al número de versión antes de
+descargar, comprueba que el modelo tenga firma y lo carga para hacer una predicción de
+verificación con su `input_example`. En `models/servicio/` quedan los archivos del modelo
+MLflow (`MLmodel`, `model.skops`, `requirements.txt`, `python_env.yaml`, ejemplo de entrada)
+y `registro.json`, con el nombre, la versión, el alias pedido, el `run_id` y los tags de
+linaje (`git_commit`, `data_version`, etc.). Si la carpeta destino existe y no es una
+exportación previa, el comando se detiene sin borrarla.
+
+Dentro del contenedor el modelo se carga con `cargar_modelo_empaquetado()`, que lee la
+carpeta indicada en `MODELO_SERVICIO_DIR` (por defecto `models/servicio`).
+
+> Alternativa no elegida: consultar el registry en tiempo de ejecución con
+> `MLFLOW_TRACKING_URI=http://host.containers.internal:5000`. Requeriría recrear el
+> experimento con artefactos servidos por el servidor (`mlflow-artifacts:/`) y lanzar
+> `mlflow server` con `--host 0.0.0.0 --allowed-hosts "localhost,127.0.0.1,host.containers.internal"`.
+
+### 2. API REST con FastAPI
+
+[src/api.py](src/api.py) expone el modelo P1. Al arrancar carga `models/servicio/` (o
+`MODELO_SERVICIO_DIR`) y comprueba que la firma del modelo tenga exactamente las variables de
+[src/p1_schema.py](src/p1_schema.py); si falta el modelo o es de otra pregunta, el servicio no
+inicia.
+
+```powershell
+uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+| Método | Ruta | Respuesta |
+|---|---|---|
+| `GET` | `/health` | `{"status": "ok"}` cuando el modelo está cargado |
+| `GET` | `/modelo` | Nombre, versión, alias y `run_id` del registry, target y features |
+| `POST` | `/predict` | Salidas esperadas en la próxima hora para cada instancia |
+| `GET` | `/docs` | Documentación interactiva (OpenAPI) con un ejemplo listo para probar |
+
+`/predict` recibe de 1 a 1000 instancias con las 11 variables del modelo, tal como las calcula
+[src/features.py](src/features.py): calendario cíclico (`hora_*` con periodo 24, `dia_*` con
+periodo 7 y lunes = 0), `es_fin_de_semana` y rezagos de salidas de la estación. Las
+predicciones negativas se recortan a 0, igual que en la evaluación.
+
+```powershell
+$cuerpo = @{ instancias = @(@{
+    hora_sin = 0.866; hora_cos = -0.5; dia_sin = 0.0; dia_cos = 1.0; es_fin_de_semana = 0
+    lag_salidas_1h = 3; lag_salidas_2h = 2; lag_salidas_3h = 4
+    lag_salidas_24h = 5; lag_salidas_168h = 4; rolling_mean_6h = 3.2
+}) } | ConvertTo-Json -Depth 3
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/predict -ContentType application/json -Body $cuerpo
+```
+
+Forma de la respuesta (valores ilustrativos; dependen de la versión empaquetada):
+
+```json
+{"modelo": "mibici-equipo33-p1-demanda", "version": "1", "target": "demanda_salidas", "predicciones": [3.41]}
+```
+
+### 3. Validación de entradas y salidas
+
+Los esquemas están definidos con Pydantic en [src/api.py](src/api.py) y se publican en
+`/docs` y `/openapi.json`.
+
+| Esquema | Uso | Reglas |
+|---|---|---|
+| `SolicitudPrediccion` | Cuerpo de `POST /predict` | `instancias`: lista de 1 a 1000 `EntradaDemanda`; sin campos extra |
+| `EntradaDemanda` | Una estación-hora | Las 11 variables son obligatorias; no se aceptan campos desconocidos (p. ej. `Origen_Id`) ni `NaN`/`Infinity` |
+| | Calendario | `hora_*`, `dia_*` en [-1, 1]; cada par debe cumplir $\sin^2 + \cos^2 = 1$ y codificar una hora (0-23) o día (0-6) entero; `es_fin_de_semana` ∈ {0, 1} y debe coincidir con el día codificado (sábado o domingo) |
+| | Rezagos | `lag_salidas_*` y `rolling_mean_6h` ≥ 0 |
+| `RespuestaPrediccion` | Respuesta de `POST /predict` | `modelo`, `version`, `target` y `predicciones` (≥ 0, en el orden de las instancias) |
+| `RespuestaModelo`, `RespuestaSalud` | `GET /modelo`, `GET /health` | Metadatos del modelo servido; `status = "ok"` |
+
+Las coherencias de calendario toleran senos y cosenos redondeados a 3 decimales. Una entrada
+inválida devuelve HTTP 422 con el campo y el motivo, sin repetir los valores recibidos:
+
+```json
+{"detail": [{"type": "value_error", "loc": ["body", "instancias", 0],
+             "msg": "Value error, es_fin_de_semana no coincide con el día de dia_sin/dia_cos."}]}
+```
+
+### 4. Contenedor
+
+[Containerfile](Containerfile) (formato OCI; Docker lo acepta con `-f Containerfile`) construye
+la imagen en dos etapas sobre `python:3.12.13-slim`, la misma versión de Python con la que se
+entrenó:
+
+1. **dependencias**: crea `/opt/venv` e instala [requirements-api.txt](requirements-api.txt), un
+   subconjunto de `requirements.txt` con las mismas versiones de scikit-learn, skops, NumPy y
+   pandas que el entrenamiento, más `mlflow-skinny` (suficiente para `mlflow.pyfunc`), FastAPI y
+   uvicorn. No incluye Optuna, Matplotlib, Jupyter ni el servidor de MLflow.
+2. **final**: copia el entorno, `config.py`, los cuatro módulos que usa la API y el modelo de
+   `models/servicio/`; corre como usuario sin privilegios (`mibici`, UID 10001) y expone el
+   puerto 8000 con uvicorn.
+
+[.dockerignore](.dockerignore) (Podman también lo lee) deja en el contexto de construcción solo
+esos archivos, así que `data/`, `mlflow.db`, `mlruns/` y `.env` nunca llegan a la imagen.
+
+```powershell
+python -m src.model_package --pregunta p1        # 1) exporta el modelo del registry
+podman build -t mibici-api:latest .              # 2) construye la imagen
+podman run --rm -p 8000:8000 mibici-api:latest   # 3) sirve en http://127.0.0.1:8000
+# Docker: docker build -f Containerfile -t mibici-api:latest .
+```
+
+La imagen no necesita `MLFLOW_TRACKING_URI` ni acceso a la red. Para servir otra versión,
+vuelve a exportar y reconstruye la imagen. Al arrancar, MLflow puede avisar que `psutil` o
+`rich` (dependencias del entorno de entrenamiento registradas con el modelo) no están
+instalados; no se usan para predecir.

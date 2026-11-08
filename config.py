@@ -73,6 +73,8 @@ MLFLOW_REGISTERED_MODELS = {
     "p3": "mibici-equipo33-p3-grupos",
 }
 MODEL_REGISTRY_REPORT = REPORTS_DIR / "parte-c-model-registry.md"
+# Copia del modelo del registry que se empaqueta en la imagen del servicio
+SERVING_MODEL_DIR = Path(os.getenv("MODELO_SERVICIO_DIR", MODELS_DIR / "servicio"))
 
 # Baselines por pregunta (defaults del entry point `train` del MLproject); la semilla es RANDOM_STATE
 MODELOS_POR_DEFECTO = {"p1": "histgb", "p2": "histgb", "p3": "kmeans"}
