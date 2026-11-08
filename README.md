@@ -70,7 +70,8 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 │   ├── evidence/           # Capturas y logs de pytest, DeepChecks, Bandit y pip-audit
 │   └── parte-c-model-registry.md  # Comparación y justificación de modelos promovidos
 ├── scripts/
-│   └── probar_contenedor.ps1      # Construye la imagen, la ejecuta y prueba la API
+│   ├── probar_contenedor.ps1      # Construye la imagen, la ejecuta y prueba la API (Windows)
+│   └── probar_contenedor.sh       # Mismo script para Linux/macOS (bash)
 ├── src/
 │   ├── dataset.py         # Verificación de versión, limpieza y filtrado AMG
 │   ├── features.py        # Malla horaria, variables cíclicas, rezagos, targets P2 y perfiles P3
@@ -582,19 +583,26 @@ podman machine init
 podman machine start
 ```
 
-[scripts/probar_contenedor.ps1](scripts/probar_contenedor.ps1) construye la imagen, la ejecuta
-en segundo plano, espera a `/health` y comprueba que:
+Los scripts de prueba construyen la imagen, la ejecutan en segundo plano, esperan a `/health`
+y comprueban que:
 
 - `GET /modelo` informe el modelo y la versión del registry empaquetados;
 - `POST /predict` con dos instancias (lunes 8:00 y domingo 0:00) devuelva HTTP 200 y dos
   predicciones ≥ 0;
 - una entrada incoherente (`es_fin_de_semana = 1` en lunes) devuelva HTTP 422.
 
-Al terminar detiene y elimina el contenedor, aunque una comprobación falle.
+Al terminar detienen y eliminan el contenedor, aunque una comprobación falle.
 
+**Windows (PowerShell):**
 ```powershell
 python -m src.model_package --pregunta p1   # si models/servicio no existe
 .\scripts\probar_contenedor.ps1             # Podman; con Docker: -Motor docker
+```
+
+**Linux / macOS (bash):**
+```bash
+python -m src.model_package --pregunta p1   # si models/servicio no existe
+bash scripts/probar_contenedor.sh           # Podman; con Docker: bash scripts/probar_contenedor.sh docker
 ```
 
 Modelo empaquetado: `mibici-equipo33-p1-demanda` versión 1 (`@champion`), run
@@ -670,5 +678,6 @@ estaciones u horas se envían varias instancias en la misma lista (máximo 1000)
 `predicciones` conserva su orden. Si una entrada es inválida la API responde HTTP 422 con el
 campo y el motivo (ver la sección 3).
 
-Para construir, levantar y probar todo de una vez: `.\scripts\probar_contenedor.ps1`
-(`-Motor docker` para Docker).
+Para construir, levantar y probar todo de una vez:
+- Windows: `.\scripts\probar_contenedor.ps1` (`-Motor docker` para Docker)
+- Linux/macOS: `bash scripts/probar_contenedor.sh` (`docker` como segundo argumento para Docker)

@@ -24,4 +24,6 @@ COPY src/__init__.py src/api.py src/model_package.py src/p1_schema.py ./src/
 COPY models/servicio/ ./models/servicio/
 USER mibici
 EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
