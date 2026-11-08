@@ -10,6 +10,9 @@ mlflow.db
 mlruns/
 mlartifacts/
 
+# --- Imágenes de contenedor exportadas (podman/docker save) ---
+*.tar
+
 # --- Figuras generadas por los scripts (se guardan como artefactos en MLflow) ---
 /reports/figures/*
 !/reports/figures/.gitkeep
