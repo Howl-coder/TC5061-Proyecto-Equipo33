@@ -8,11 +8,15 @@
 # Argumentos:
 #   $1  Motor de contenedores: podman (por defecto) | docker
 #   $2  Puerto del host (por defecto: 8000)
+#   $3  Nombre del modelo esperado (por defecto: mibici-equipo33-p1-demanda)
+#   $4  Versión esperada (por defecto: 1)
 
 set -euo pipefail
 
 MOTOR="${1:-podman}"
 PUERTO="${2:-8000}"
+MODELO_ESPERADO="${3:-mibici-equipo33-p1-demanda}"
+VERSION_ESPERADA="${4:-1}"
 IMAGEN="mibici-api:latest"
 CONTENEDOR="mibici-api-prueba"
 BASE="http://127.0.0.1:${PUERTO}"
@@ -62,56 +66,79 @@ fi
 echo "GET /health -> ok"
 
 # GET /modelo
-INFO=$(python3 -c "
-import urllib.request, json
-r = urllib.request.urlopen('${BASE}/modelo')
-d = json.loads(r.read())
-print(d['nombre'], 'v' + d['version'], '(run', d['run_id'] + ')')
-")
+INFO=$(BASE="$BASE" MODELO_ESPERADO="$MODELO_ESPERADO" VERSION_ESPERADA="$VERSION_ESPERADA" \
+python3 -c '
+import json
+import os
+import urllib.request
+
+with urllib.request.urlopen(os.environ["BASE"] + "/modelo") as response:
+    data = json.loads(response.read())
+nombre = data["nombre"]
+version = str(data["version"])
+nombre_esperado = os.environ["MODELO_ESPERADO"]
+version_esperada = os.environ["VERSION_ESPERADA"]
+if nombre != nombre_esperado or version != version_esperada:
+    raise SystemExit(
+        f"Modelo inesperado: {nombre} v{version}; se esperaba "
+        f"{nombre_esperado} v{version_esperada}."
+    )
+print(nombre, "v" + version, "(run", data["run_id"] + ")")
+')
 echo "GET /modelo -> $INFO"
 
 # POST /predict con dos instancias válidas
-PREDICCIONES=$(python3 -c "
-import urllib.request, json
-cuerpo = json.dumps({'instancias': [
-    {'hora_sin': 0.866, 'hora_cos': -0.5, 'dia_sin': 0.0, 'dia_cos': 1.0,
-     'es_fin_de_semana': 0, 'lag_salidas_1h': 3, 'lag_salidas_2h': 2,
-     'lag_salidas_3h': 4, 'lag_salidas_24h': 5, 'lag_salidas_168h': 4,
-     'rolling_mean_6h': 3.2},
-    {'hora_sin': 0.0, 'hora_cos': 1.0, 'dia_sin': -0.7818, 'dia_cos': 0.6235,
-     'es_fin_de_semana': 1, 'lag_salidas_1h': 0, 'lag_salidas_2h': 0,
-     'lag_salidas_3h': 0, 'lag_salidas_24h': 1, 'lag_salidas_168h': 0,
-     'rolling_mean_6h': 0.1}
+PREDICCIONES=$(BASE="$BASE" MODELO_ESPERADO="$MODELO_ESPERADO" VERSION_ESPERADA="$VERSION_ESPERADA" python3 -c '
+import os
+import json
+import urllib.request
+cuerpo = json.dumps({"instancias": [
+    {"hora_sin": 0.866, "hora_cos": -0.5, "dia_sin": 0.0, "dia_cos": 1.0,
+     "es_fin_de_semana": 0, "lag_salidas_1h": 3, "lag_salidas_2h": 2,
+     "lag_salidas_3h": 4, "lag_salidas_24h": 5, "lag_salidas_168h": 4,
+     "rolling_mean_6h": 3.2},
+    {"hora_sin": 0.0, "hora_cos": 1.0, "dia_sin": -0.7818, "dia_cos": 0.6235,
+     "es_fin_de_semana": 1, "lag_salidas_1h": 0, "lag_salidas_2h": 0,
+     "lag_salidas_3h": 0, "lag_salidas_24h": 1, "lag_salidas_168h": 0,
+     "rolling_mean_6h": 0.1}
 ]}).encode()
-req = urllib.request.Request('${BASE}/predict', data=cuerpo,
-      headers={'Content-Type': 'application/json'})
+req = urllib.request.Request(os.environ["BASE"] + "/predict", data=cuerpo,
+      headers={"Content-Type": "application/json"})
 r = urllib.request.urlopen(req)
 d = json.loads(r.read())
-preds = d['predicciones']
-if len(preds) != 2 or any(p < 0 for p in preds):
-    raise ValueError(f'Respuesta inesperada: {d}')
+preds = d["predicciones"]
+if (d.get("modelo") != os.environ["MODELO_ESPERADO"]
+        or str(d.get("version")) != os.environ["VERSION_ESPERADA"]
+        or d.get("target") != "demanda_salidas"
+        or len(preds) != 2
+        or any(p < 0 for p in preds)):
+    raise ValueError(f"Respuesta inesperada: {d}")
 print(json.dumps(d))
-")
+')
 echo "POST /predict -> $PREDICCIONES"
 
 # POST /predict con entrada incoherente — debe devolver 422
-CODIGO=$(python3 -c "
-import urllib.request, json
-cuerpo = json.dumps({'instancias': [
-    {'hora_sin': 0.866, 'hora_cos': -0.5, 'dia_sin': 0.0, 'dia_cos': 1.0,
-     'es_fin_de_semana': 1, 'lag_salidas_1h': 3, 'lag_salidas_2h': 2,
-     'lag_salidas_3h': 4, 'lag_salidas_24h': 5, 'lag_salidas_168h': 4,
-     'rolling_mean_6h': 3.2}
+CODIGO=$(BASE="$BASE" python3 -c '
+import os
+import json
+import urllib.error
+import urllib.request
+cuerpo = json.dumps({"instancias": [
+    {"hora_sin": 0.866, "hora_cos": -0.5, "dia_sin": 0.0, "dia_cos": 1.0,
+     "es_fin_de_semana": 1, "lag_salidas_1h": 3, "lag_salidas_2h": 2,
+     "lag_salidas_3h": 4, "lag_salidas_24h": 5, "lag_salidas_168h": 4,
+     "rolling_mean_6h": 3.2}
 ]}).encode()
-req = urllib.request.Request('${BASE}/predict', data=cuerpo,
-      headers={'Content-Type': 'application/json'})
+req = urllib.request.Request(os.environ["BASE"] + "/predict", data=cuerpo,
+      headers={"Content-Type": "application/json"})
 try:
     urllib.request.urlopen(req)
     print(200)
 except urllib.error.HTTPError as e:
     print(e.code)
-    import sys; sys.stderr.write(e.read().decode())
-" 2>/tmp/detalle_422)
+    import sys
+    sys.stderr.write(e.read().decode())
+' 2>/tmp/detalle_422)
 if [[ "$CODIGO" != "422" ]]; then
     echo "Se esperaba HTTP 422 para entrada incoherente y se obtuvo $CODIGO." >&2
     exit 1

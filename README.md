@@ -586,7 +586,9 @@ podman machine start
 Los scripts de prueba construyen la imagen, la ejecutan en segundo plano, esperan a `/health`
 y comprueban que:
 
-- `GET /modelo` informe el modelo y la versión del registry empaquetados;
+- `GET /modelo` y la respuesta de `POST /predict` identifiquen exactamente el modelo
+  `mibici-equipo33-p1-demanda` versión `1` (por defecto; se puede indicar otra identidad
+  esperada al probar una versión nueva);
 - `POST /predict` con dos instancias (lunes 8:00 y domingo 0:00) devuelva HTTP 200 y dos
   predicciones ≥ 0;
 - una entrada incoherente (`es_fin_de_semana = 1` en lunes) devuelva HTTP 422.
@@ -597,12 +599,14 @@ Al terminar detienen y eliminan el contenedor, aunque una comprobación falle.
 ```powershell
 python -m src.model_package --pregunta p1   # si models/servicio no existe
 .\scripts\probar_contenedor.ps1             # Podman; con Docker: -Motor docker
+# Para comprobar otra versión: -NombreModeloEsperado mibici-equipo33-p1-demanda -VersionEsperada 3
 ```
 
 **Linux / macOS (bash):**
 ```bash
 python -m src.model_package --pregunta p1   # si models/servicio no existe
 bash scripts/probar_contenedor.sh           # Podman; con Docker: bash scripts/probar_contenedor.sh docker
+# Para comprobar otra versión: bash scripts/probar_contenedor.sh podman 8000 mibici-equipo33-p1-demanda 3
 ```
 
 Modelo empaquetado: `mibici-equipo33-p1-demanda` versión 1 (`@champion`), run

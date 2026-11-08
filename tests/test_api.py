@@ -71,6 +71,7 @@ def test_predict_devuelve_json_y_recorta_negativos(cliente):
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
     assert cuerpo["modelo"] == "mibici-prueba-p1"
+    assert cuerpo["version"] == "7"
     assert cuerpo["target"] == "demanda_salidas"
     np.testing.assert_allclose(cuerpo["predicciones"], [4.0, 0.0], atol=1e-6)
 

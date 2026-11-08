@@ -9,7 +9,9 @@ Solo ASCII: Windows PowerShell 5.1 lee los .ps1 sin BOM como ANSI.
 param(
     [ValidateSet("podman", "docker")] [string]$Motor = "podman",
     [int]$Puerto = 8000,
-    [string]$Imagen = "mibici-api:latest"
+    [string]$Imagen = "mibici-api:latest",
+    [string]$NombreModeloEsperado = "mibici-equipo33-p1-demanda",
+    [string]$VersionEsperada = "1"
 )
 
 $raiz = Split-Path -Parent $PSScriptRoot
@@ -39,6 +41,9 @@ try {
     Write-Host "GET /health -> ok"
 
     $modelo = Invoke-RestMethod "$base/modelo"
+    if ($modelo.nombre -ne $NombreModeloEsperado -or [string]$modelo.version -ne $VersionEsperada) {
+        throw "Modelo inesperado: $($modelo.nombre) v$($modelo.version); se esperaba $NombreModeloEsperado v$VersionEsperada."
+    }
     Write-Host "GET /modelo -> $($modelo.nombre) v$($modelo.version) (run $($modelo.run_id))"
 
     $laborable = @{
@@ -53,7 +58,13 @@ try {
     }
     $cuerpo = @{ instancias = @($laborable, $domingo) } | ConvertTo-Json -Depth 4
     $respuesta = Invoke-RestMethod -Method Post -Uri "$base/predict" -ContentType "application/json" -Body $cuerpo
-    if ($respuesta.predicciones.Count -ne 2 -or ($respuesta.predicciones | Where-Object { $_ -lt 0 })) {
+    if (
+        $respuesta.modelo -ne $NombreModeloEsperado -or
+        [string]$respuesta.version -ne $VersionEsperada -or
+        $respuesta.target -ne "demanda_salidas" -or
+        $respuesta.predicciones.Count -ne 2 -or
+        ($respuesta.predicciones | Where-Object { $_ -lt 0 })
+    ) {
         throw "Respuesta inesperada de /predict: $($respuesta | ConvertTo-Json -Compress)"
     }
     Write-Host "POST /predict -> $($respuesta | ConvertTo-Json -Compress)"
