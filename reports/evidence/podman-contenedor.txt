@@ -1,0 +1,52 @@
+[1/2] STEP 1/5: FROM docker.io/library/python:3.12.13-slim AS dependencias
+[1/2] STEP 2/5: ENV PIP_NO_CACHE_DIR=1     PIP_DISABLE_PIP_VERSION_CHECK=1
+--> Using cache 67456175dae98669ddc2b69aa6d7ed5e1cf4a97e2a2a5de6f08d870ba4699b0c
+--> 67456175dae9
+[1/2] STEP 3/5: RUN python -m venv /opt/venv
+--> Using cache ff6a26f0a78625add8971a9b3c4e02a22eb0fe127852319dadaf4cc2d39c552a
+--> ff6a26f0a786
+[1/2] STEP 4/5: COPY requirements-api.txt /tmp/requirements-api.txt
+--> Using cache f28f1bb5e907c5743c5792bf6cb580d8858c4d4e0a72012a341f31acc02c6b14
+--> f28f1bb5e907
+[1/2] STEP 5/5: RUN /opt/venv/bin/pip install -r /tmp/requirements-api.txt
+--> Using cache 3c320a2d3c108fb297c12e05da5e7ec769cdecdb848fd897cb3f370acfd34fff
+--> 3c320a2d3c10
+[2/2] STEP 1/11: FROM docker.io/library/python:3.12.13-slim
+[2/2] STEP 2/11: ENV PATH="/opt/venv/bin:${PATH}"     PYTHONDONTWRITEBYTECODE=1     PYTHONUNBUFFERED=1     MODELO_SERVICIO_DIR=/app/models/servicio
+--> Using cache 259adfca7835ebfba1a2ef1a07daf83b5ab524649f63896991be6495dd8fabea
+--> 259adfca7835
+[2/2] STEP 3/11: RUN useradd --create-home --uid 10001 mibici
+--> Using cache eb4e80099abb9a3ebb660e0911d4391d0f9261413443ea7ded9f42e9857b19ed
+--> eb4e80099abb
+[2/2] STEP 4/11: WORKDIR /app
+--> Using cache 2004b009e3e46b8241a80ddbdfc74efc951b7e03801a6cb67fa6af146f8a4e12
+--> 2004b009e3e4
+[2/2] STEP 5/11: COPY --from=dependencias /opt/venv /opt/venv
+--> Using cache 6925dfebd821578361f9ff3e22d729a0bea5f99c3fcc530c69e43aca5109289e
+--> 6925dfebd821
+[2/2] STEP 6/11: COPY config.py ./
+--> Using cache 923aca2ff696a6e73f1cb11c0e12e792eacfb4d5a68fd4dd7058a2df4ec6b9ae
+--> 923aca2ff696
+[2/2] STEP 7/11: COPY src/__init__.py src/api.py src/model_package.py src/p1_schema.py ./src/
+--> Using cache 545ea7001cfbb8cca9e94d4dba67cdcf07538c2ff21499c446563a32b1e681d0
+--> 545ea7001cfb
+[2/2] STEP 8/11: COPY models/servicio/ ./models/servicio/
+--> Using cache 284f6aee82de1b1c712ea504ac58ccee33cd01f85b6ff03317bea6d3c354197d
+--> 284f6aee82de
+[2/2] STEP 9/11: USER mibici
+--> Using cache f3d5687232888d1a9e4683176c95c7abb13ad5e59bed8a724a75dadb8b2319f4
+--> f3d568723288
+[2/2] STEP 10/11: EXPOSE 8000
+--> Using cache 2e1677347e70a7fc2d58b5c968f280c406837f166c9e51094e1f4937bf909978
+--> 2e1677347e70
+[2/2] STEP 11/11: CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+--> Using cache 61cf7dd43e72643f61b662031d0df14481c3cd7d153f3b832bf0e381a4d32b0d
+[2/2] COMMIT mibici-api:latest
+--> 61cf7dd43e72
+Successfully tagged localhost/mibici-api:latest
+61cf7dd43e72643f61b662031d0df14481c3cd7d153f3b832bf0e381a4d32b0d
+GET /health -> ok
+GET /modelo -> mibici-equipo33-p1-demanda v1 (run 606849422b6941c38df8c9039bdcff5d)
+POST /predict -> {"modelo":"mibici-equipo33-p1-demanda","version":"1","target":"demanda_salidas","predicciones":[4.355850750022855,0.2495090943117954]}
+POST /predict (entrada incoherente) -> 422 {"detail":[{"type":"value_error","loc":["body","instancias",0],"msg":"Value error, es_fin_de_semana no coincide con el día de dia_sin/dia_cos."}]}
+Prueba del contenedor superada.
