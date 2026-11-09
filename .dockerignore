@@ -1,0 +1,7 @@
+# Contexto mínimo de la imagen: solo lo que copia el Containerfile (evita enviar datos, .env, mlflow.db)
+*
+!config.py
+!requirements-api.txt
+!src/
+!models/servicio/
+**/__pycache__
