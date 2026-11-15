@@ -28,6 +28,72 @@ El planteamiento completo está en el [ML Canvas](references/ml_canvas_v1.2.docx
 - **Partición temporal:** entrenamiento de abril a agosto y prueba en septiembre. No se usa partición aleatoria, para no filtrar información del futuro.
 - **Archivos esperados en `data/raw/`:** `datos_abiertos_2026_04.csv` … `datos_abiertos_2026_09.csv` y `nomenclatura_2026_09.csv`. Se descargan del portal y **no se versionan en Git**.
 
+### Conjuntos para monitoreo P1
+
+Para el primer ejercicio de monitoreo se usa como **referencia** el periodo de entrenamiento
+del modelo P1 (2026-04-01 a 2026-08-31) y como **actual** septiembre de 2026
+(2026-09-01 a 2026-09-30). Septiembre es el periodo de datos abiertos inmediatamente
+posterior al entrenamiento disponible en este repositorio; permite comparar un mes completo
+sin particionar los datos aleatoriamente. Ambos conjuntos se generan con las mismas variables
+P1, limpieza e ingeniería de características del entrenamiento. El cálculo de rezagos necesita
+168 horas de historia, por lo que las primeras filas de abril no forman parte de la referencia.
+
+La API actual no guarda las solicitudes recibidas, así que septiembre es un proxy retrospectivo
+de producción, no telemetría real. También es el periodo de prueba ya usado para evaluar los
+baselines; los resultados de monitoreo sobre septiembre son evidencia inicial, no una prueba
+independiente para la promoción definitiva de una nueva versión. Al contar con otro mes posterior
+o registros de solicitudes, conviene crear un periodo actual independiente.
+
+Después de generar `data/processed/features_demanda_p1.parquet`, ejecuta:
+
+```powershell
+python -m src.monitoring_data
+```
+
+El comando prepara `data/monitoring/referencia_p1.parquet` y
+`data/monitoring/actual_p1.parquet` (con la llave estación-hora, las features y el target P1),
+y un `metadata.json` con la versión, periodos efectivos, conteos y esquema. Todo queda bajo
+`data/`, que está excluido de Git; los periodos elegidos y su justificación sí quedan
+documentados aquí.
+
+Con `evidently==0.7.23` instalado desde `requirements.txt`, genera el reporte comparativo:
+
+```powershell
+python -m src.monitoring_report
+```
+
+El HTML queda en `reports/monitoring/drift_p1.html`, junto con su salida estructurada JSON.
+El reporte compara el drift variable por variable para las features de entrada y el target
+`demanda_salidas`; el resumen de calidad de Evidently incluye valores faltantes, filas o
+columnas vacías, duplicados y estadísticas por columna. Se omiten las pruebas genéricas de
+igualdad contra la referencia, pues sus alertas por tamaño y cambios de distribución son
+precisamente lo que se busca observar en periodos de distinta duración.
+
+Con el servidor de MLflow levantado, compara dos versiones registradas de P1 sobre las mismas
+filas actuales:
+
+```powershell
+python -m src.ab_testing --version-a 1 --version-b 2
+```
+
+El comando registra métricas y bootstrap pareado por día en
+`reports/monitoring/ab_test_p1.json`. Para crear el documento de entrega con las gráficas:
+
+```powershell
+python -m scripts.generar_reporte_monitoring
+```
+
+El DOCX `TC5061_Drift_ABTest_Equipo33.docx` se guarda en `reports/monitoring/`; el script
+no sobrescribe un documento existente. El HTML interactivo de Evidently y los resultados JSON
+se conservan como anexos.
+
+Con los datos actuales, Evidently marca drift en 7 de las 12 variables analizadas:
+`lag_salidas_1h`, `lag_salidas_2h`, `lag_salidas_3h`, `lag_salidas_24h`,
+`lag_salidas_168h`, `rolling_mean_6h` y `demanda_salidas`. Para el conjunto actual reporta
+cero valores faltantes, filas duplicadas, filas vacías y columnas vacías. El drift es una
+señal de cambio en la distribución, no evidencia suficiente por sí sola para concluir que
+el modelo perdió calidad.
+
 ### Versionado de datos
 
 [references/manifiesto_datos.json](references/manifiesto_datos.json), que sí está en Git, guarda el tamaño y el SHA-256 de cada archivo crudo y un hash global de la versión (`data_version` = `mibici-datos-abiertos-2026_04-2026_09`).
@@ -68,14 +134,19 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 ├── reports/
 │   ├── figures/           # Figuras generadas (también se guardan como artefactos en MLflow)
 │   ├── evidence/           # Capturas y logs de pytest, DeepChecks, Bandit y pip-audit
+│   ├── monitoring/         # Reportes Evidently, A/B y Continuous Training de P1
 │   └── parte-c-model-registry.md  # Comparación y justificación de modelos promovidos
 ├── scripts/
+│   ├── generar_reporte_monitoring.py # Genera el DOCX de drift, A/B y Continuous Training
 │   ├── probar_contenedor.ps1      # Construye la imagen, la ejecuta y prueba la API (Windows)
 │   └── probar_contenedor.sh       # Mismo script para Linux/macOS (bash)
 ├── src/
 │   ├── dataset.py         # Verificación de versión, limpieza y filtrado AMG
 │   ├── features.py        # Malla horaria, variables cíclicas, rezagos, targets P2 y perfiles P3
 │   ├── data_validation.py # Integridad de datos y drift train/test con DeepChecks
+│   ├── monitoring_data.py # Separa y persiste referencia y periodo actual de P1
+│   ├── monitoring_report.py # Genera el reporte de drift y calidad con Evidently
+│   ├── ab_testing.py      # Evalúa versiones del Registry con bootstrap pareado por día
 │   ├── p1_schema.py       # Target y features compartidos por entrenamiento y validación P1
 │   ├── tracking.py        # Utilidades comunes de MLflow (tags, parámetros, verificación de datos)
 │   ├── train.py           # Entrena un modelo (pregunta, modelo, hiperparámetros); usado por MLproject
@@ -90,6 +161,9 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
     ├── test_dataset.py              # SHA-256, manifiesto y catálogo AMG
     ├── test_features.py             # Malla horaria, rezagos, target P2 y perfiles P3
     ├── test_data_validation.py      # Esquema y suites DeepChecks (entorno de validación)
+    ├── test_monitoring_data.py      # Separación temporal de los datasets de monitoreo
+    ├── test_monitoring_report.py    # Reporte Evidently de drift y calidad
+    ├── test_ab_testing.py           # Métricas y bootstrap pareado de versiones P1
     ├── test_train.py                # Parseo de hiperparámetros del CLI
     ├── test_search.py               # Partición temporal de validación y purga
     ├── test_model_package.py        # Exportación y carga del modelo del registry

@@ -1,0 +1,73 @@
+{
+  "registered_model": "mibici-equipo33-p1-demanda",
+  "version_a": "1",
+  "version_b": "2",
+  "evaluacion": {
+    "filas": 337680,
+    "estaciones": 469,
+    "desde": "2026-09-01T00:00:00",
+    "hasta": "2026-09-30T23:00:00",
+    "target": "demanda_salidas",
+    "features": [
+      "hora_sin",
+      "hora_cos",
+      "dia_sin",
+      "dia_cos",
+      "es_fin_de_semana",
+      "lag_salidas_1h",
+      "lag_salidas_2h",
+      "lag_salidas_3h",
+      "lag_salidas_24h",
+      "lag_salidas_168h",
+      "rolling_mean_6h"
+    ]
+  },
+  "modelos": {
+    "1": {
+      "run_id": "606849422b6941c38df8c9039bdcff5d",
+      "stage_of_work": "baseline",
+      "git_dirty": "False",
+      "hiperparametros": {
+        "l2_regularization": "0.0",
+        "learning_rate": "0.1",
+        "max_depth": "None",
+        "max_iter": "200",
+        "min_samples_leaf": "20"
+      }
+    },
+    "2": {
+      "run_id": "0b0afa8ab72b40f982e0ff56a696e7f5",
+      "stage_of_work": "candidate",
+      "git_dirty": "True",
+      "hiperparametros": {
+        "l2_regularization": "0.1",
+        "learning_rate": "0.05",
+        "max_depth": "6",
+        "max_iter": "300",
+        "min_samples_leaf": "30"
+      }
+    }
+  },
+  "metricas": {
+    "1": {
+      "rmse": 1.4809971835126807,
+      "mae": 0.8372687853443277,
+      "r2": 0.6917381306402655,
+      "sesgo_pred_menos_real": -0.04358150683994086
+    },
+    "2": {
+      "rmse": 1.4848328746412551,
+      "mae": 0.8383409011977864,
+      "r2": 0.6901393045267106,
+      "sesgo_pred_menos_real": -0.04387512949040395
+    }
+  },
+  "bootstrap_rmse_b_menos_a": {
+    "delta_observado_rmse_b_menos_a": 0.0038356911285744033,
+    "ic_95_inferior": -0.0014309773380128898,
+    "ic_95_superior": 0.011856662236672148,
+    "fraccion_replicas_b_peor": 0.868,
+    "bloques_dia": 30,
+    "replicas": 5000
+  }
+}
