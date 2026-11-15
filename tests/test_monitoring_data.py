@@ -47,6 +47,9 @@ def test_preparar_datasets_rechaza_esquema_incompleto_y_periodo_vacio():
     with pytest.raises(ValueError, match="conjunto de referencia está vacío"):
         preparar_datasets_monitoreo(_datos(["2026-09-01"]))
 
+    with pytest.raises(ValueError, match="conjunto actual está vacío"):
+        preparar_datasets_monitoreo(_datos(["2026-04-08"]))
+
 
 def test_guardar_datasets_escribe_parquets_y_metadata(tmp_path):
     datos = _datos(["2026-08-31 23:00", "2026-09-01 00:00"])

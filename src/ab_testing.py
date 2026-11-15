@@ -32,7 +32,11 @@ def _validar_vectores(y_real, y_predicho) -> tuple[np.ndarray, np.ndarray]:
 
 
 def metricas_regresion(y_real, y_predicho) -> dict[str, float]:
-    """Calcula métricas P1 después de acotar las predicciones a demanda no negativa."""
+    """Calcula RMSE, MAE, R² y sesgo medio sobre los vectores recibidos tal cual.
+
+    El recorte de predicciones negativas a 0 es responsabilidad del llamador
+    (ver ``comparar_versiones``).
+    """
     real, predicho = _validar_vectores(y_real, y_predicho)
     return {
         "rmse": float(np.sqrt(mean_squared_error(real, predicho))),

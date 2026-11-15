@@ -31,6 +31,17 @@ def test_bootstrap_pareado_por_dia_detecta_candidato_uniformemente_peor():
     assert resultado["bloques_dia"] == 3
 
 
+def test_metricas_regresion_rechaza_vectores_vacios_y_con_nan():
+    with pytest.raises(ValueError, match="igual tamaño"):
+        metricas_regresion([], [])
+
+    with pytest.raises(ValueError, match="finitos"):
+        metricas_regresion([1, float("nan")], [1, 2])
+
+    with pytest.raises(ValueError, match="finitos"):
+        metricas_regresion([1, 2], [1, float("inf")])
+
+
 def test_bootstrap_rechaza_un_solo_dia_y_longitudes_distintas():
     with pytest.raises(ValueError, match="igual tamaño"):
         bootstrap_delta_rmse_por_dia(
