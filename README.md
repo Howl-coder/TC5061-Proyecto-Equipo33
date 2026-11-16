@@ -94,6 +94,15 @@ cero valores faltantes, filas duplicadas, filas vacías y columnas vacías. El d
 señal de cambio en la distribución, no evidencia suficiente por sí sola para concluir que
 el modelo perdió calidad.
 
+La comparación guardada favorece mantener la V1: en septiembre obtuvo RMSE 1.4810,
+MAE 0.8373 y R² 0.6917; la V2 obtuvo 1.4848, 0.8383 y 0.6901, respectivamente. El
+delta RMSE V2−V1 fue +0.0038 (IC bootstrap 95%: −0.0014 a +0.0119), por lo que la
+diferencia no es concluyente. La V2 registrada tiene `git_dirty=True`; sus resultados
+son evidencia de una candidata, pero no se debe promover. Reentrena una candidata desde
+un árbol Git limpio antes de cualquier nuevo registro o promoción. `src.train` ahora
+rechaza candidatos si no puede identificar el commit o detecta cambios locales, incluidos
+archivos no ignorados sin seguimiento.
+
 ### Versionado de datos
 
 [references/manifiesto_datos.json](references/manifiesto_datos.json), que sí está en Git, guarda el tamaño y el SHA-256 de cada archivo crudo y un hash global de la versión (`data_version` = `mibici-datos-abiertos-2026_04-2026_09`).
@@ -412,6 +421,10 @@ La interfaz de MLflow queda disponible en http://127.0.0.1:5000.
 - Para otro servidor de tracking, cambia `MLFLOW_TRACKING_URI`; `config.py` usa `http://127.0.0.1:5000` si la variable no está definida.
 
 > Para que los runs queden ligados a un commit exacto, lánzalos con el árbol de trabajo limpio (`git status` sin cambios). Si hay cambios sin commit, el run se etiqueta con `git_dirty=True`.
+
+Los entrenamientos con `stage=candidate` requieren un repositorio Git identificable y un
+árbol limpio. El comando `python -m src.train` se detiene antes de cargar los datos si no
+se cumple; los baselines y búsquedas conservan su comportamiento actual.
 
 ## Experimento en MLflow
 

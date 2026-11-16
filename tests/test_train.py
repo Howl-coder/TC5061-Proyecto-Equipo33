@@ -1,6 +1,7 @@
+from config import HIPERPARAMS_POR_DEFECTO
 import pytest
 
-from config import HIPERPARAMS_POR_DEFECTO
+import src.train as modulo_train
 from src.train import parsear_hiperparams
 
 PERMITIDOS_P2 = HIPERPARAMS_POR_DEFECTO["p2"]["logreg"]
@@ -26,3 +27,21 @@ def test_parsear_hiperparams_casos_validos(texto, esperado):
 def test_parsear_hiperparams_rechaza_claves_desconocidas_o_sin_valor(texto):
     with pytest.raises(ValueError, match="Hiperparámetro inválido"):
         parsear_hiperparams(texto, PERMITIDOS_P2)
+
+
+def test_main_valida_el_arbol_git_antes_de_entrenar_candidato(monkeypatch):
+    def rechazar_candidato():
+        raise RuntimeError("árbol Git sucio")
+
+    monkeypatch.setattr(
+        "sys.argv", ["train", "--pregunta", "p1", "--stage", "candidate"]
+    )
+    monkeypatch.setattr(modulo_train, "validar_entorno_candidato", rechazar_candidato)
+    monkeypatch.setattr(
+        modulo_train.train_regresion,
+        "cargar_datos",
+        lambda: pytest.fail("No debe cargar datos si el árbol Git no está limpio"),
+    )
+
+    with pytest.raises(RuntimeError, match="árbol Git sucio"):
+        modulo_train.main()
