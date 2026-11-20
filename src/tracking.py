@@ -2,8 +2,6 @@
 import shutil
 import subprocess  # nosec B404
 
-import mlflow
-
 from config import (
     ARCHIVOS_VIAJES_RAW,
     BASE_DIR,
@@ -17,6 +15,8 @@ from config import (
     RANDOM_STATE,
     RUTA_CATALOGO_ESTACIONES,
 )
+import mlflow
+
 from src.dataset import verificar_datos_crudos
 
 # Modelos HistGradientBoosting entrenados por nosotros; skops exige declarar este tipo
@@ -41,8 +41,21 @@ def obtener_git_commit() -> str:
 
 
 def repo_con_cambios() -> bool:
-    """True si hay cambios sin commit en archivos versionados."""
-    return bool(_git("status", "--porcelain", "--untracked-files=no"))
+    """True si hay cambios sin commit o archivos no ignorados sin seguimiento."""
+    return bool(_git("status", "--porcelain"))
+
+
+def validar_entorno_candidato() -> None:
+    """Exige un commit identificable y un árbol limpio para entrenar candidatos."""
+    if obtener_git_commit() == "desconocido":
+        raise RuntimeError(
+            "No se puede entrenar un candidato fuera de un repositorio Git identificable."
+        )
+    if repo_con_cambios():
+        raise RuntimeError(
+            "No se puede entrenar un candidato con cambios locales. "
+            "Haz commit de los cambios y vuelve a ejecutarlo."
+        )
 
 
 def configurar_experimento() -> None:

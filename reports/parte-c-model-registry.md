@@ -21,6 +21,20 @@ La promoción registra cada modelo desde su run de origen; los tags de la versi�
 | `P1-baseline-histgb` **(seleccionado)** | baseline | HistGradientBoostingRegressor | 1.4810 | 0.8373 | 0.6917 | 86.6 |
 | `P1-baseline-histgb` | baseline | HistGradientBoostingRegressor | 1.4810 | 0.8373 | 0.6917 | 388.5 |
 
+### Comparación A/B de versiones registradas de P1
+
+Las versiones 1 y 2 del modelo registrado se evaluaron sobre las mismas 337,680 filas
+de septiembre de 2026. La V1 obtuvo RMSE 1.4810, MAE 0.8373 y R² 0.6917; la V2 obtuvo
+RMSE 1.4848, MAE 0.8383 y R² 0.6901. El delta RMSE V2−V1 fue +0.0038, con intervalo
+bootstrap pareado por día al 95% de [−0.0014, +0.0119]. Como el intervalo incluye cero y
+la V2 no mejora las métricas puntuales, se conserva la V1 como `champion`.
+
+La versión 2 está etiquetada con `git_dirty=True`; esta comparación histórica no basta
+para justificar una promoción. Antes de registrar o promover una nueva candidata, hay
+que repetir el entrenamiento desde un commit identificable y un árbol Git limpio. El
+detalle reproducible está en [ab_test_p1.json](monitoring/ab_test_p1.json); la evaluación
+de septiembre es retrospectiva y no representa tráfico aleatorizado de producción.
+
 ## P2 — Riesgo de desbalance de estaciones
 
 - **Modelo registrado:** `mibici-equipo33-p2-riesgo` versión `1`.

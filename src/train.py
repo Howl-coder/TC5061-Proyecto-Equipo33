@@ -13,7 +13,11 @@ import ast
 from config import HIPERPARAMS_POR_DEFECTO, MODELOS_POR_DEFECTO
 
 from src import train_clasificacion, train_clustering, train_regresion
-from src.tracking import configurar_experimento, params_reproducibilidad
+from src.tracking import (
+    configurar_experimento,
+    params_reproducibilidad,
+    validar_entorno_candidato,
+)
 
 MODULOS = {"p1": train_regresion, "p2": train_clasificacion, "p3": train_clustering}
 # Centinela sin comillas: MLflow en Windows no transmite bien un string vacío
@@ -52,6 +56,9 @@ def main():
     )
     parser.add_argument("--stage", choices=["baseline", "candidate"], default="baseline")
     args = parser.parse_args()
+
+    if args.stage == "candidate":
+        validar_entorno_candidato()
 
     modelo = MODELOS_POR_DEFECTO[args.pregunta] if args.modelo == USAR_CONFIG else args.modelo
     defaults = HIPERPARAMS_POR_DEFECTO[args.pregunta]
