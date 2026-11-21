@@ -219,6 +219,44 @@ la raíz del proyecto al `PYTHONPATH` y muestra el motivo de las pruebas omitida
 y reproducibilidad del entrenamiento P1, P2 y P3 con la misma semilla. Las pruebas de
 `test_data_validation.py` se omiten si DeepChecks no está instalado.
 
+### Integración continua
+
+El workflow [CI](.github/workflows/ci.yml) se ejecuta en cada push y pull request. Ejecuta
+las pruebas generales con Python 3.12 y las pruebas de DeepChecks en un entorno separado.
+También construye la imagen y comprueba `/health`, `/modelo` y `/predict` mediante
+[probar_contenedor.sh](scripts/probar_contenedor.sh).
+
+Para ejecutarlo en GitHub:
+
+1. Confirma los cambios en una rama y súbela al repositorio:
+   `git push origin nombre-de-tu-rama`. El archivo del workflow debe estar incluido en la rama.
+2. El push inicia CI automáticamente; abrir o actualizar un pull request también lo inicia.
+   Si GitHub Actions está deshabilitado en el repositorio, habilítalo en su configuración.
+3. En GitHub, abre **Actions → CI** y selecciona la ejecución para revisar los jobs
+   `pruebas-e-imagen` y `validacion-de-datos` y sus registros. En un pull request,
+   consulta también la pestaña **Checks**. No requiere secretos de despliegue.
+
+El workflow no tiene activador manual `workflow_dispatch`: se inicia con push o pull request.
+Como el modelo exportado no se versiona, CI genera un modelo sintético con
+[generar_modelo_ci.py](scripts/generar_modelo_ci.py) solo para esa comprobación. La imagen
+resultante no contiene el modelo entrenado y **no se publica ni se despliega**. Para construir
+la imagen operativa se necesita exportar el modelo real como se explica en la
+[sección de recuperación](#1-recuperación-del-modelo-desde-el-model-registry).
+
+### Prueba de carga con Locust
+
+El escenario [locustfile.py](load_tests/locustfile.py) simula usuarios concurrentes de
+`POST /predict` y valida las respuestas. El [reporte de carga](reports/carga/reporte.md)
+documenta la ejecución, sus gráficas y los comandos para reproducirla con el entorno
+aislado de [requirements-load.txt](requirements-load.txt). El reporte usa el modelo real
+exportado, no el modelo sintético de CI.
+La [medición de recursos](reports/carga/recursos.md) presenta CPU y memoria de los
+contenedores durante una segunda ejecución y explica las limitaciones de Podman en WSL.
+El [análisis FinOps](reports/finops.md) estima el costo de cómputo por inferencia
+con un precio de referencia de nube y describe oportunidades de optimización.
+El [informe integrado en Word](reports/Informe_Carga_FinOps_Equipo33.docx) reúne las
+gráficas de carga, los recursos y el análisis FinOps de la segunda ejecución.
+
 ### Validación de datos con DeepChecks
 
 DeepChecks usa un entorno aislado porque su versión actual es incompatible con
@@ -520,6 +558,48 @@ flowchart LR
     K["Cliente<br/>(tablero, script horario)"] -->|POST /predict JSON| C
     C -->|predicciones JSON| K
 ```
+
+### Orquestación con Docker Compose
+
+[docker-compose.yml](docker-compose.yml) levanta la API y MLflow juntos. Se necesita Docker
+con Compose (o Podman con un proveedor Compose) y un modelo P1 exportado previamente en
+`models/servicio/`, como se explica en la [sección 1](#1-recuperación-del-modelo-desde-el-model-registry).
+El modelo no está versionado en Git: sin esa exportación la imagen no se puede construir.
+Los puertos locales 8000 y 5000 deben estar libres; detén antes cualquier servidor MLflow
+local que use el puerto 5000.
+
+Si aún no existe `models/servicio/`, exporta primero el modelo promovido desde el equipo
+que tiene acceso al registry existente y sus artefactos:
+
+```powershell
+python -m src.model_package --pregunta p1
+```
+
+La exportación requiere el entorno Python del proyecto y `MLFLOW_TRACKING_URI` apuntando
+al registry que contiene el modelo; el MLflow nuevo de Compose no lo importa automáticamente.
+Después de exportarlo, libera el puerto 5000 si el servidor anterior lo ocupa.
+
+Desde la raíz del proyecto:
+
+```powershell
+docker compose up --build -d
+# Con Podman y un proveedor Compose instalado: podman compose up --build -d
+```
+
+- API: http://127.0.0.1:8000/docs; salud: http://127.0.0.1:8000/health.
+- MLflow: http://127.0.0.1:5000; desde otros contenedores en la red Compose,
+  el tracking URI es `http://mlflow:5000`.
+- Para revisar o detener los servicios: `docker compose ps`, `docker compose logs` y
+  `docker compose down` (sustituye `docker` por `podman` si corresponde).
+
+MLflow guarda la base SQLite y los artefactos en el volumen `mlflow-data`, que sobrevive a
+`down`. Es un almacenamiento nuevo y separado de `mlflow.db` y `mlruns/` del host: no
+importa automáticamente los experimentos ni modelos existentes. Los nuevos experimentos
+usan artefactos servidos por MLflow. La API sigue usando la copia incluida en su imagen,
+no el registry en tiempo de ejecución; para cambiarla, exporta el modelo y ejecuta de nuevo
+`docker compose up --build -d`. No uses `down -v` si deseas conservar los datos de MLflow.
+Los puertos están publicados solo en la máquina local; esta configuración no proporciona
+autenticación y está destinada a desarrollo local.
 
 ### Estrategia de despliegue: inferencia en línea (tiempo real) con micro-lotes
 
