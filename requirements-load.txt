@@ -1,0 +1,3 @@
+# Entorno independiente para pruebas de carga e informes
+locust==2.47.0
+matplotlib==3.11.2
