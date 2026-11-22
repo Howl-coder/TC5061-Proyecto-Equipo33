@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas-e-imagen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-api.txt
+      - name: Instalar dependencias
+        run: python -m pip install -r requirements.txt -r requirements-api.txt
+      - name: Ejecutar pruebas
+        run: python -m pytest -v
+      - name: Generar modelo sintético para CI
+        run: python -m scripts.generar_modelo_ci models/servicio
+      - name: Construir y comprobar la imagen
+        run: bash scripts/probar_contenedor.sh docker 8000 mibici-prueba-ci 1
+
+  validacion-de-datos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-validation.txt
+      - name: Instalar dependencias de validación
+        run: python -m pip install -r requirements-validation.txt
+      - name: Ejecutar pruebas de DeepChecks
+        run: python -m pytest tests/test_data_validation.py -v
