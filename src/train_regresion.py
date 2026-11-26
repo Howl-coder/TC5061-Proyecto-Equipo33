@@ -189,9 +189,9 @@ def entrenar(
 
 
 def main():
+    params_base = params_reproducibilidad("p1")
     datos = cargar_datos()
     configurar_experimento()
-    params_base = params_reproducibilidad()
 
     defaults = HIPERPARAMS_POR_DEFECTO["p1"]
     entrenar("naive", {"columna_naive": "lag_salidas_1h"}, datos, params_base)

@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.search import _partir_validacion
+from src.search import _crear_estudio, _partir_validacion
 
 
 @pytest.fixture
@@ -39,3 +39,12 @@ def test_partir_validacion_falla_sin_historia_previa():
 
     with pytest.raises(ValueError, match="suficientes filas"):
         _partir_validacion(solo_julio)
+
+
+def test_busqueda_repite_las_sugerencias_con_la_misma_semilla():
+    def buscar():
+        estudio = _crear_estudio("reproducibilidad")
+        estudio.optimize(lambda trial: trial.suggest_float("x", -10, 10) ** 2, n_trials=15)
+        return [trial.params for trial in estudio.trials]
+
+    assert buscar() == buscar()
