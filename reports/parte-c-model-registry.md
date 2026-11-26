@@ -16,6 +16,20 @@ La promoción registra cada modelo desde su run de origen; los tags de la versi�
 - **Duración de entrenamiento:** 86.6 s.
 - **Justificación de selección:** HistGradientBoosting con RMSE 1.481, MAE 0.837 y R2 0.692 en septiembre; mejora clara sobre los baselines naive de persistencia y estacional.
 
+**Verificación local del 25 de noviembre de 2026:** la base `mlflow.db` contiene la
+versión 1 en estado `READY`, vinculada al run indicado, y el alias `champion` apunta
+a esa versión. El artefacto local conserva su firma y produjo tres predicciones finitas
+con su ejemplo de entrada. El servidor de tracking no estaba activo, por lo que no se
+verificó el alias mediante la API ni se afirma que exista un servicio desplegado.
+No se creó una versión duplicada ni se modificó el alias.
+
+El run registró `data_sha256=3e266fbe4327e7a7` (prefijo) y no contiene los hashes
+de los Parquet preparados que registra el pipeline actual. Es un modelo histórico:
+la selección no acredita que se haya entrenado con las modificaciones posteriores de
+ingesta y features. La base y los artefactos locales no se versionan en Git; deben
+conservarse para recuperar esta versión y comprobarse en el Registry activo antes de
+desplegar.
+
 | Run | Etapa | Familia | test_rmse | test_mae | test_r2 | Entrenamiento (s) |
 |---|---|---|---|---|---|---:|
 | `P1-baseline-histgb` **(seleccionado)** | baseline | HistGradientBoostingRegressor | 1.4810 | 0.8373 | 0.6917 | 86.6 |

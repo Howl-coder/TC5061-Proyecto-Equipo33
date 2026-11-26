@@ -34,9 +34,11 @@ Para el primer ejercicio de monitoreo se usa como **referencia** el periodo de e
 del modelo P1 (2026-04-01 a 2026-08-31) y como **actual** septiembre de 2026
 (2026-09-01 a 2026-09-30). Septiembre es el periodo de datos abiertos inmediatamente
 posterior al entrenamiento disponible en este repositorio; permite comparar un mes completo
-sin particionar los datos aleatoriamente. Ambos conjuntos se generan con las mismas variables
-P1, limpieza e ingeniería de características del entrenamiento. El cálculo de rezagos necesita
+sin particionar los datos aleatoriamente. Ambos conjuntos usan las variables P1 y la
+versión vigente del pipeline. El cálculo de rezagos necesita
 168 horas de historia, por lo que las primeras filas de abril no forman parte de la referencia.
+La compatibilidad de columnas no demuestra que esa versión del pipeline sea idéntica a
+la usada por un modelo histórico: comprueba el commit y linaje antes de comparar.
 
 La API actual no guarda las solicitudes recibidas, así que septiembre es un proxy retrospectivo
 de producción, no telemetría real. También es el periodo de prueba ya usado para evaluar los
@@ -52,7 +54,9 @@ python -m src.monitoring_data
 
 El comando prepara `data/monitoring/referencia_p1.parquet` y
 `data/monitoring/actual_p1.parquet` (con la llave estación-hora, las features y el target P1),
-y un `metadata.json` con la versión, periodos efectivos, conteos y esquema. Todo queda bajo
+y un `metadata.json` con la versión, periodos, conteos, esquema y hashes de fuentes,
+código y Parquet. El comando verifica el manifiesto y la procedencia de ingesta y features
+antes de leer los datos. Todo queda bajo
 `data/`, que está excluido de Git; los periodos elegidos y su justificación sí quedan
 documentados aquí.
 
@@ -62,7 +66,8 @@ Con `evidently==0.7.23` instalado desde `requirements.txt`, genera el reporte co
 python -m src.monitoring_report
 ```
 
-El HTML queda en `reports/monitoring/drift_p1.html`, junto con su salida estructurada JSON.
+El HTML queda en `reports/monitoring/drift_p1.html`, junto con su salida estructurada JSON
+y un archivo `drift_p1.metadata.json` con hashes de ambos reportes y sus datasets.
 El reporte compara el drift variable por variable para las features de entrada y el target
 `demanda_salidas`; el resumen de calidad de Evidently incluye valores faltantes, filas o
 columnas vacías, duplicados y estadísticas por columna. Se omiten las pruebas genéricas de
@@ -76,8 +81,9 @@ filas actuales:
 python -m src.ab_testing --version-a 1 --version-b 2
 ```
 
-El comando registra métricas y bootstrap pareado por día en
-`reports/monitoring/ab_test_p1.json`. Para crear el documento de entrega con las gráficas:
+El comando guarda métricas y bootstrap pareado por día en
+`reports/monitoring/ab_test_p1.json`, incluyendo semilla, linaje de modelos y datasets;
+no crea un run de tracking. Para crear el documento de entrega con las gráficas:
 
 ```powershell
 python -m scripts.generar_reporte_monitoring
@@ -85,7 +91,9 @@ python -m scripts.generar_reporte_monitoring
 
 El DOCX `TC5061_Drift_ABTest_Equipo33.docx` se guarda en `reports/monitoring/`; el script
 no sobrescribe un documento existente. El HTML interactivo de Evidently y los resultados JSON
-se conservan como anexos.
+se conservan como anexos. Para una revisión nueva usa `--output` con otro nombre: el
+generador exige que los resultados de drift y A/B correspondan a los mismos datasets
+verificados y que los hashes del HTML y JSON coincidan.
 
 Con los datos actuales, Evidently marca drift en 7 de las 12 variables analizadas:
 `lag_salidas_1h`, `lag_salidas_2h`, `lag_salidas_3h`, `lag_salidas_24h`,
@@ -103,12 +111,56 @@ un árbol Git limpio antes de cualquier nuevo registro o promoción. `src.train`
 rechaza candidatos si no puede identificar el commit o detecta cambios locales, incluidos
 archivos no ignorados sin seguimiento.
 
+### Monitoreo y gobernanza P1
+
+| Evidencia | Alcance |
+|---|---|
+| [Model Card P1](reports/model-card-p1.md) | Uso, linaje, resultados, riesgos y limitaciones de la V1 |
+| [Evidently HTML](reports/monitoring/drift_p1.html) · [JSON](reports/monitoring/drift_p1.json) | Drift y calidad retrospectivos |
+| [Comparación A/B](reports/monitoring/ab_test_p1.json) · [informe](reports/monitoring/TC5061_Drift_ABTest_Equipo33.docx) | Versiones evaluadas sobre las mismas filas, no tráfico aleatorizado |
+| [FinOps](reports/finops.md) · [carga y recursos](reports/carga/recursos.md) | Estimación de costos y sus supuestos |
+| [Model Registry](reports/parte-c-model-registry.md) | Selección, linaje y alias documentados |
+
+Para una nueva revisión, regenera primero ingesta y features si cambiaron datos o código,
+prepara los conjuntos y ejecuta Evidently y la comparación como se indica arriba. Esos
+comandos usan los periodos de `config.py`; la API no genera telemetría ni activa alertas,
+entrenamiento o promociones automáticamente. El reporte de drift sobrescribe sus archivos
+HTML, JSON y metadatos; la comparación sobrescribe su JSON por defecto, pero admite `--output` para
+conservar la evidencia anterior. Verifica qué archivos deseas preservar antes de ejecutarlos.
+Los datasets de monitoreo históricos sin hashes deben regenerarse: Evidently y A/B
+rechazan archivos alterados o con procedencia obsoleta. Los informes históricos existentes
+no incluyen los nuevos metadatos y no se han regenerado.
+
+Revisa drift y calidad junto con métricas por estación y periodo cuando haya resultados
+observados. Si se propone una candidata, utiliza un árbol Git limpio, compara con el
+champion en un periodo independiente y documenta la decisión antes de promoverla. Actualiza
+el Model Card y la estimación FinOps al cambiar el modelo, los datos o la operación.
+
+Para cada revisión, el equipo debe designar responsables de datos, evaluación y aprobación;
+estos roles y su periodicidad aún no están asignados en el repositorio. La persona responsable
+debe conservar los resultados y hashes, investigar cambios y calidad, revisar errores por
+segmento y registrar si se mantiene, reentrena o propone una candidata, con su justificación.
+Antes de una promoción, acuerda criterios de calidad, costo y reversión y comprueba el alias
+vigente. No registrar solicitudes ni datos personales adicionales sin definir acceso,
+retención y controles de privacidad; actualmente no existe captura de telemetría.
+
 ### Versionado de datos
 
 [references/manifiesto_datos.json](references/manifiesto_datos.json), que sí está en Git, guarda el tamaño y el SHA-256 de cada archivo crudo y un hash global de la versión (`data_version` = `mibici-datos-abiertos-2026_04-2026_09`).
 
 - `python -m src.dataset` compara los CSV locales contra el manifiesto y **se detiene si no coinciden**, indicando qué archivo cambió.
+- Si falta el manifiesto, la ingesta se detiene: restáuralo desde Git o crea uno nuevo
+  explícitamente con `--actualizar-manifiesto`.
 - Cada run de MLflow verifica los datos otra vez y registra `data_version` y `data_sha256`.
+- Ingesta y features guardan metadatos junto a cada Parquet, con hashes del archivo, sus
+  entradas y el código de preparación. Entrenamiento y búsqueda verifican esa procedencia
+  y registran los hashes completos de los Parquet utilizados. Si cambian los datos, el
+  código de preparación o los archivos generados, vuelve a ejecutar `ingest` y `features`.
+  Los Parquet anteriores a esta comprobación también deben regenerarse.
+- Los entry points `ingest` y `features` registran sus hashes y metadatos de procedencia
+  como parámetros y artefactos en sus respectivos runs de MLflow.
+- La malla incluye las estaciones observadas como origen **o** destino, incluso si una
+  estación solo recibe viajes; esto conserva sus llegadas para el cálculo de balance.
 - Para registrar una versión nueva a propósito, por ejemplo al agregar un mes, ejecuta `python -m src.dataset --actualizar-manifiesto` y haz commit del manifiesto.
 
 ## Estructura del repositorio
@@ -152,6 +204,7 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 ├── src/
 │   ├── dataset.py         # Verificación de versión, limpieza y filtrado AMG
 │   ├── features.py        # Malla horaria, variables cíclicas, rezagos, targets P2 y perfiles P3
+│   ├── provenance.py      # Verificación de procedencia de los Parquet
 │   ├── data_validation.py # Integridad de datos y drift train/test con DeepChecks
 │   ├── monitoring_data.py # Separa y persiste referencia y periodo actual de P1
 │   ├── monitoring_report.py # Genera el reporte de drift y calidad con Evidently
@@ -224,7 +277,10 @@ y reproducibilidad del entrenamiento P1, P2 y P3 con la misma semilla. Las prueb
 El workflow [CI](.github/workflows/ci.yml) se ejecuta en cada push y pull request. Ejecuta
 las pruebas generales con Python 3.12 y las pruebas de DeepChecks en un entorno separado.
 También construye la imagen y comprueba `/health`, `/modelo` y `/predict` mediante
-[probar_contenedor.sh](scripts/probar_contenedor.sh).
+[probar_contenedor.sh](scripts/probar_contenedor.sh). Luego inicia la API con Compose,
+espera su healthcheck y ejecuta una prueba breve de Locust (2 usuarios durante 15 s).
+CI exige al menos una petición y cero fallos, y conserva los CSV como artefacto
+`locust-ci`; esta comprobación no mide capacidad ni establece umbrales de rendimiento.
 
 Para ejecutarlo en GitHub:
 
@@ -236,12 +292,37 @@ Para ejecutarlo en GitHub:
    `pruebas-e-imagen` y `validacion-de-datos` y sus registros. En un pull request,
    consulta también la pestaña **Checks**. No requiere secretos de despliegue.
 
-El workflow no tiene activador manual `workflow_dispatch`: se inicia con push o pull request.
-Como el modelo exportado no se versiona, CI genera un modelo sintético con
+También admite ejecución manual mediante `workflow_dispatch`. Como el modelo exportado
+no se versiona, CI genera un modelo sintético con
 [generar_modelo_ci.py](scripts/generar_modelo_ci.py) solo para esa comprobación. La imagen
-resultante no contiene el modelo entrenado y **no se publica ni se despliega**. Para construir
-la imagen operativa se necesita exportar el modelo real como se explica en la
-[sección de recuperación](#1-recuperación-del-modelo-desde-el-model-registry).
+resultante de CI **no se publica**.
+
+### Entrega continua a GHCR
+
+Tras pasar ambos jobs de CI en `main`, el job `publicar-imagen` exporta el modelo P1
+`champion` del Registry, comprueba su linaje, construye y prueba la imagen real, y la
+publica en `ghcr.io/howl-coder/mibiciequipo33` con `latest` y
+`sha-<commit>-model-<versión>`. Un pull request nunca publica. La publicación no despliega
+la imagen en un servidor; el despliegue y la elección de versión siguen siendo manuales.
+Una ejecución manual solo publica si se ejecuta en `main`.
+
+Antes de activar el workflow en `main`:
+
+1. Crea un paquete GHCR **privado** llamado `mibiciequipo33` y concede al repositorio
+   acceso de escritura. El job verifica su visibilidad y falla si el paquete no existe,
+   no es privado o el token no puede consultarlo. No publiques los artefactos del modelo
+   en un paquete público.
+2. Configura el secreto de Actions `MLFLOW_TRACKING_URI` con la URL HTTPS del servidor
+   MLflow accesible desde GitHub Actions. Si usa autenticación básica, configura también
+   `MLFLOW_TRACKING_USERNAME` y `MLFLOW_TRACKING_PASSWORD` como secretos. El Registry debe
+   servir los artefactos del modelo; el SQLite local no es accesible desde el runner.
+3. Habilita GitHub Actions y la escritura de paquetes con `GITHUB_TOKEN` en el repositorio.
+   El `champion` debe tener firma, run y tags de linaje, `git_dirty=False` y versión de datos.
+
+Si falta alguna condición, la publicación falla sin sustituir el modelo por el sintético.
+Al actualizar el alias sin modificar código, ejecuta el workflow manualmente desde `main`.
+La etiqueta fija incorpora el commit de código y la versión de modelo; usa esa etiqueta
+en vez de `latest` cuando necesites fijar un despliegue.
 
 ### Prueba de carga con Locust
 
@@ -363,8 +444,8 @@ Todas las corridas se lanzan desde el [MLproject](MLproject) con `mlflow run`, n
 **1. Clonar e instalar el CLI de MLflow**
 
 ```powershell
-git clone https://github.com/Howl-coder/TC5061-Proyecto-Equipo33.git
-cd TC5061-Proyecto-Equipo33
+git clone https://github.com/Howl-coder/MiBiciEquipo33.git
+cd MiBiciEquipo33
 python -m venv .venv; .\.venv\Scripts\Activate.ps1   # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -408,6 +489,7 @@ las etiquetas de riesgo del entrenamiento incluyan balances de la validación. S
 permanece reservado para la comparación final y no se usa en Optuna. P3 calcula perfiles
 solo hasta agosto, como en el baseline, y compara silhouette dentro de esos perfiles sin
 usar datos de septiembre.
+Optuna usa un sampler TPE con la semilla `config.RANDOM_STATE` en las tres búsquedas.
 
 Tras escoger los hiperparámetros con las métricas `best_validation_*` del run padre (P3
 elige por silhouette usando solo los perfiles de entrenamiento), vuelve a ejecutar cada
@@ -469,6 +551,9 @@ se cumple; los baselines y búsquedas conservan su comportamiento actual.
 - **Experimento:** `mibici-equipo33`, registrado en el servidor local `http://127.0.0.1:5000`, respaldado por `mlflow.db` (SQLite, no versionado).
 - **Tags de cada run:** `equipo`, `question` (`P1`/`P2`/`P3`), `git_commit`, `git_dirty`, `model_family`, `stage_of_work` (`baseline`, `search`, `candidate`).
 - **Parámetros de cada run:** `fecha_inicio`, `fecha_fin`, `fecha_fin_train`, `fecha_inicio_test`, `data_version`, `data_sha256`, archivos usados, `random_state` e hiperparámetros del modelo.
+- Los entrenamientos y búsquedas registran también la versión de Python y las versiones
+  instaladas de MLflow, NumPy, pandas, PyArrow, scikit-learn y Optuna. `python_env.yaml`
+  fija las dependencias directas para los entry points; no es un lockfile de transitivas.
 - **Artefactos:** figura de evaluación de cada run y el modelo serializado. P3 agrega además el mapa de clusters, los perfiles horarios, la curva de selección de k y la tabla de asignación de estaciones.
 
 | Run | Pregunta | Modelo |
@@ -507,6 +592,12 @@ Los modelos seleccionados se registran en el Model Registry con nombres estables
 promueven con el alias `champion`. Se usan aliases en vez de las etapas legacy (`Staging`,
 `Production`), porque son el esquema vigente de MLflow y permiten cambiar la versión de
 producción sin recrear el modelo registrado.
+
+El alias identifica la versión seleccionada en el Registry; por sí solo no despliega
+ni verifica un servicio. La base `mlflow.db` y los artefactos `mlruns/` locales no se
+versionan en Git: consérvalos y comprueba el alias en el servidor activo antes de
+desplegar. La selección histórica y sus limitaciones constan en
+[reports/parte-c-model-registry.md](reports/parte-c-model-registry.md).
 
 | Pregunta | Nombre en Model Registry | URI de producción |
 |---|---|---|
