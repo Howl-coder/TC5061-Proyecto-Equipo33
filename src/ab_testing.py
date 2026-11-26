@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from src.monitoring_data import COLUMNA_TIEMPO, RUTA_SALIDA
+from src.monitoring_data import COLUMNA_TIEMPO, RUTA_SALIDA, verificar_datasets_monitoreo
 from src.p1_schema import FEATURES, TARGET
 
 RUTA_RESULTADOS = REPORTS_DIR / "monitoring" / "ab_test_p1.json"
@@ -25,7 +25,9 @@ def _validar_vectores(y_real, y_predicho) -> tuple[np.ndarray, np.ndarray]:
     real = np.asarray(y_real, dtype=float).reshape(-1)
     predicho = np.asarray(y_predicho, dtype=float).reshape(-1)
     if real.size == 0 or real.shape != predicho.shape:
-        raise ValueError("Los vectores de valores reales y predichos deben tener igual tamaño > 0.")
+        raise ValueError(
+            "Los vectores de valores reales y predichos deben tener igual tamaño > 0."
+        )
     if not np.isfinite(real).all() or not np.isfinite(predicho).all():
         raise ValueError("Los vectores de valores reales y predichos deben ser finitos.")
     return real, predicho
@@ -90,6 +92,7 @@ def bootstrap_delta_rmse_por_dia(
         "fraccion_replicas_b_peor": float(np.mean(delta > 0)),
         "bloques_dia": len(dias_unicos),
         "replicas": int(n_replicas),
+        "random_state": int(random_state),
     }
 
 
@@ -124,7 +127,9 @@ def comparar_versiones(
         if version.status != "READY":
             raise ValueError(f"El modelo {nombre} versión {version_id} no está READY.")
         if version.tags.get("question") != "P1":
-            raise ValueError(f"El modelo {nombre} versión {version_id} no está etiquetado como P1.")
+            raise ValueError(
+                f"El modelo {nombre} versión {version_id} no está etiquetado como P1."
+            )
 
         modelo = mlflow.pyfunc.load_model(f"models:/{nombre}/{version_id}")
         firma = modelo.metadata.get_input_schema()
@@ -139,6 +144,8 @@ def comparar_versiones(
             "run_id": version.run_id,
             "stage_of_work": version.tags.get("stage_of_work"),
             "git_dirty": version.tags.get("git_dirty"),
+            "git_commit": version.tags.get("git_commit"),
+            "data_version": version.tags.get("data_version"),
             "hiperparametros": {
                 key: value
                 for key, value in run.data.params.items()
@@ -197,6 +204,7 @@ def main() -> None:
         raise FileNotFoundError(
             f"No existe {ruta_datos}. Ejecuta primero `python -m src.monitoring_data`."
         )
+    procedencia = verificar_datasets_monitoreo()
     datos = pd.read_parquet(ruta_datos)
     resultados = comparar_versiones(
         args.version_a,
@@ -205,8 +213,11 @@ def main() -> None:
         n_replicas=args.n_replicas,
         random_state=args.seed,
     )
+    resultados["procedencia_datasets"] = procedencia
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(resultados, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(resultados, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     for version in (args.version_a, args.version_b):
         print(f"Versión {version}: {resultados['metricas'][version]}")
     print(f"Delta RMSE B-A e IC 95%: {resultados['bootstrap_rmse_b_menos_a']}")

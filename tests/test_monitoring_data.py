@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from src import monitoring_data
 from src.monitoring_data import (
     COLUMNAS_DATASET,
     guardar_datasets_monitoreo,
@@ -55,9 +56,39 @@ def test_guardar_datasets_escribe_parquets_y_metadata(tmp_path):
     datos = _datos(["2026-08-31 23:00", "2026-09-01 00:00"])
     referencia, actual = preparar_datasets_monitoreo(datos)
 
-    resumen = guardar_datasets_monitoreo(referencia, actual, tmp_path)
+    procedencia = {"data_version": "v1", "data_sha256": "raw", "features_sha256": "features"}
+    resumen = guardar_datasets_monitoreo(referencia, actual, tmp_path, procedencia=procedencia)
 
     assert pd.read_parquet(tmp_path / "referencia_p1.parquet").equals(referencia)
     assert pd.read_parquet(tmp_path / "actual_p1.parquet").equals(actual)
     assert (tmp_path / "metadata.json").exists()
     assert resumen["actual"]["filas"] == 1
+    assert resumen["procedencia_fuente"] == procedencia
+    assert len(resumen["actual"]["sha256"]) == 64
+
+
+@pytest.mark.parametrize("cambio", ["fuente", "referencia", "actual"])
+def test_verificar_monitoreo_rechaza_fuentes_o_datasets_modificados(tmp_path, monkeypatch, cambio):
+    datos = _datos(["2026-08-31 23:00", "2026-09-01 00:00"])
+    referencia, actual = preparar_datasets_monitoreo(datos)
+    procedencia = {"data_version": "v1", "data_sha256": "raw", "features_sha256": "features"}
+    guardar_datasets_monitoreo(referencia, actual, tmp_path, procedencia=procedencia)
+    monkeypatch.setattr(monitoring_data, "procedencia_fuente", lambda: procedencia)
+    monitoring_data.verificar_datasets_monitoreo(tmp_path)
+
+    if cambio == "fuente":
+        monkeypatch.setattr(
+            monitoring_data, "procedencia_fuente", lambda: {**procedencia, "data_sha256": "otro"}
+        )
+    else:
+        (tmp_path / f"{cambio}_p1.parquet").write_bytes(b"modificado")
+
+    with pytest.raises(ValueError, match="desactualizad"):
+        monitoring_data.verificar_datasets_monitoreo(tmp_path)
+
+
+def test_verificar_monitoreo_rechaza_metadata_historica_sin_hashes(tmp_path, monkeypatch):
+    (tmp_path / "metadata.json").write_text('{"data_version": "v1"}', encoding="utf-8")
+    monkeypatch.setattr(monitoring_data, "procedencia_fuente", lambda: {"data_version": "v1"})
+    with pytest.raises(ValueError, match="Procedencia de monitoreo desactualizada"):
+        monitoring_data.verificar_datasets_monitoreo(tmp_path)
