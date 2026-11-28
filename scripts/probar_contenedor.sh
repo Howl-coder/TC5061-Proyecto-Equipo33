@@ -32,14 +32,13 @@ if [[ ! -f "$RAIZ/models/servicio/registro.json" ]]; then
     exit 1
 fi
 
-cleanup() {
-    "$MOTOR" stop "$CONTENEDOR" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-
 "$MOTOR" build -f "$RAIZ/Containerfile" -t "$IMAGEN" "$RAIZ"
 
-"$MOTOR" run -d --rm --name "$CONTENEDOR" -p "${PUERTO}:8000" "$IMAGEN" >/dev/null
+ID_CONTENEDOR=$("$MOTOR" run -d --rm --name "$CONTENEDOR" -p "${PUERTO}:8000" "$IMAGEN")
+cleanup() {
+    "$MOTOR" stop "$ID_CONTENEDOR" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 # Esperar hasta 60 s a que /health responda
 listo=0

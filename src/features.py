@@ -241,14 +241,23 @@ def construir_perfil_estaciones(
     return perfil.reset_index()
 
 if __name__ == "__main__":
+    from src.dataset import verificar_datos_crudos
+    from src.provenance import (
+        guardar_procedencia,
+        registrar_procedencia_mlflow,
+        verificar_procedencia,
+    )
+
     ruta_interim = INTERIM_DATA_DIR / "viajes_amg_limpios.parquet"
     if not ruta_interim.exists():
         raise FileNotFoundError(f"Primero corre dataset.py para generar {ruta_interim}")
+    manifiesto = verificar_datos_crudos()
+    verificar_procedencia(ruta_interim, "ingest", manifiesto["sha256_global"])
 
     print(f"Cargando {ruta_interim.name}...")
     df_viajes = pd.read_parquet(ruta_interim)
 
-    estaciones = sorted(df_viajes["Origen_Id"].unique())
+    estaciones = sorted(set(df_viajes["Origen_Id"]) | set(df_viajes["Destino_Id"]))
     print(f"Generando malla horaria para {len(estaciones)} estaciones...")
     df_malla = generar_malla_demanda_horaria(df_viajes, estaciones)
 
@@ -258,6 +267,8 @@ if __name__ == "__main__":
     PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
     salida = PROCESSED_DATA_DIR / "features_demanda_p1.parquet"
     df_features.to_parquet(salida, index=False)
+    guardar_procedencia(salida, "features", manifiesto["sha256_global"])
+    registrar_procedencia_mlflow(salida, "features", manifiesto["sha256_global"])
 
     print(f"Features P1 guardadas con éxito en: {salida}")
     print(f"Dimensiones de entrenamiento: {df_features.shape}")

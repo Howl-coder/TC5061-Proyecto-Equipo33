@@ -13,7 +13,6 @@ from pathlib import Path
 
 from config import (
     DATA_DIR,
-    DATA_VERSION,
     FECHA_FIN,
     FECHA_INICIO,
     FECHA_INICIO_TEST,
@@ -21,12 +20,23 @@ from config import (
 )
 import pandas as pd
 
+from src.dataset import sha256_archivo, verificar_datos_crudos
 from src.p1_schema import FEATURES, TARGET
+from src.provenance import verificar_datos_preparados
 
 COLUMNA_TIEMPO = "timestamp_hora"
 COLUMNAS_DATASET = [COLUMNA_TIEMPO, "Origen_Id", *FEATURES, TARGET]
 RUTA_FEATURES = PROCESSED_DATA_DIR / "features_demanda_p1.parquet"
 RUTA_SALIDA = DATA_DIR / "monitoring"
+
+
+def procedencia_fuente() -> dict:
+    manifiesto = verificar_datos_crudos()
+    return {
+        "data_version": manifiesto["version"],
+        "data_sha256": manifiesto["sha256_global"],
+        **verificar_datos_preparados("p1", manifiesto["sha256_global"]),
+    }
 
 
 def preparar_datasets_monitoreo(datos: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -68,7 +78,11 @@ def _resumen_periodo(datos: pd.DataFrame, archivo: str) -> dict:
 
 
 def guardar_datasets_monitoreo(
-    referencia: pd.DataFrame, actual: pd.DataFrame, directorio: Path = RUTA_SALIDA
+    referencia: pd.DataFrame,
+    actual: pd.DataFrame,
+    directorio: Path = RUTA_SALIDA,
+    *,
+    procedencia: dict,
 ) -> dict:
     """Guarda ambos conjuntos como Parquet y un resumen reproducible en JSON."""
     salida = Path(directorio)
@@ -80,22 +94,52 @@ def guardar_datasets_monitoreo(
     actual.to_parquet(salida / archivo_actual, index=False)
 
     resumen = {
-        "data_version": DATA_VERSION,
+        "data_version": procedencia["data_version"],
+        "procedencia_fuente": procedencia,
+        "codigo_monitoreo_sha256": sha256_archivo(Path(__file__)),
         "fuente": str(RUTA_FEATURES.relative_to(DATA_DIR.parent)),
         "target": TARGET,
         "features": FEATURES,
         "referencia": {
             "periodo_configurado": f"{FECHA_INICIO} a {FECHA_INICIO_TEST} (exclusivo)",
             **_resumen_periodo(referencia, archivo_referencia),
+            "sha256": sha256_archivo(salida / archivo_referencia),
         },
         "actual": {
             "periodo_configurado": f"{FECHA_INICIO_TEST} a {FECHA_FIN}",
             **_resumen_periodo(actual, archivo_actual),
+            "sha256": sha256_archivo(salida / archivo_actual),
         },
     }
     with open(salida / "metadata.json", "w", encoding="utf-8") as archivo:
         json.dump(resumen, archivo, indent=2, ensure_ascii=False)
         archivo.write("\n")
+    return resumen
+
+
+def verificar_datasets_monitoreo(directorio: Path = RUTA_SALIDA) -> dict:
+    """Rechaza datasets de monitoreo modificados o derivados de fuentes obsoletas."""
+    directorio = Path(directorio)
+    ruta_metadata = directorio / "metadata.json"
+    if not ruta_metadata.is_file():
+        raise FileNotFoundError(
+            f"Falta {ruta_metadata}. Ejecuta primero `python -m src.monitoring_data`."
+        )
+    resumen = json.loads(ruta_metadata.read_text(encoding="utf-8"))
+    if resumen.get("procedencia_fuente") != procedencia_fuente() or resumen.get(
+        "codigo_monitoreo_sha256"
+    ) != sha256_archivo(Path(__file__)):
+        raise ValueError("Procedencia de monitoreo desactualizada; regenera los datasets.")
+
+    for conjunto in ("referencia", "actual"):
+        archivo = directorio / f"{conjunto}_p1.parquet"
+        metadatos = resumen.get(conjunto, {})
+        if (
+            not archivo.is_file()
+            or metadatos.get("archivo") != archivo.name
+            or metadatos.get("sha256") != sha256_archivo(archivo)
+        ):
+            raise ValueError(f"Dataset de monitoreo {conjunto} desactualizado o modificado.")
     return resumen
 
 
@@ -106,9 +150,10 @@ def main() -> None:
             "y `python -m src.features`."
         )
 
+    procedencia = procedencia_fuente()
     datos = pd.read_parquet(RUTA_FEATURES)
     referencia, actual = preparar_datasets_monitoreo(datos)
-    resumen = guardar_datasets_monitoreo(referencia, actual)
+    resumen = guardar_datasets_monitoreo(referencia, actual, procedencia=procedencia)
     for conjunto in ("referencia", "actual"):
         periodo = resumen[conjunto]
         print(

@@ -4,6 +4,7 @@ Uso:
     python -m src.monitoring_report
 """
 
+import json
 from pathlib import Path
 
 from config import REPORTS_DIR
@@ -11,7 +12,8 @@ from evidently import Report
 from evidently.presets import DataDriftPreset, DataSummaryPreset
 import pandas as pd
 
-from src.monitoring_data import COLUMNAS_DATASET, RUTA_SALIDA
+from src.dataset import sha256_archivo
+from src.monitoring_data import COLUMNAS_DATASET, RUTA_SALIDA, verificar_datasets_monitoreo
 from src.p1_schema import FEATURES, TARGET
 
 RUTA_REPORTE = REPORTS_DIR / "monitoring" / "drift_p1.html"
@@ -53,11 +55,22 @@ def main() -> None:
             "Ejecuta primero `python -m src.monitoring_data`."
         )
 
+    procedencia = verificar_datasets_monitoreo()
     referencia = pd.read_parquet(ruta_referencia)
     actual = pd.read_parquet(ruta_actual)
-    generar_reporte_evidently(referencia, actual)
+    generar_reporte_evidently(referencia, actual, ruta_html=RUTA_REPORTE)
+    metadatos = {
+        "datasets": procedencia,
+        "html_sha256": sha256_archivo(RUTA_REPORTE),
+        "json_sha256": sha256_archivo(RUTA_REPORTE.with_suffix(".json")),
+    }
+    ruta_metadata = RUTA_REPORTE.with_suffix(".metadata.json")
+    ruta_metadata.write_text(
+        json.dumps(metadatos, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     print(f"Reporte Evidently guardado en {RUTA_REPORTE}")
     print(f"Resultados estructurados guardados en {RUTA_REPORTE.with_suffix('.json')}")
+    print(f"Procedencia del reporte guardada en {ruta_metadata}")
 
 
 if __name__ == "__main__":

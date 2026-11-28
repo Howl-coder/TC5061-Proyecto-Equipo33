@@ -26,6 +26,14 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 N_TRIALS_DEFAULT = 5
 
 
+def _crear_estudio(nombre: str):
+    return optuna.create_study(
+        direction="minimize",
+        study_name=nombre,
+        sampler=optuna.samplers.TPESampler(seed=RANDOM_STATE),
+    )
+
+
 def _partir_validacion(train: pd.DataFrame, purge_hours: int = 0):
     """Split training history into a purged fit period and a July validation window."""
     if purge_hours < 0:
@@ -97,7 +105,7 @@ def _buscar_p1(params_base: dict, n_trials: int) -> None:
         mlflow.log_params(params_busqueda)
         mlflow.log_param("n_trials", n_trials)
 
-        study = optuna.create_study(direction="minimize", study_name="P1-histgb")
+        study = _crear_estudio("P1-histgb")
         study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
         mlflow.log_params({f"best_{k}": v for k, v in study.best_params.items()})
@@ -160,7 +168,7 @@ def _buscar_p2(params_base: dict, n_trials: int) -> None:
         mlflow.log_params(params_busqueda)
         mlflow.log_param("n_trials", n_trials)
 
-        study = optuna.create_study(direction="minimize", study_name="P2-mixed")
+        study = _crear_estudio("P2-mixed")
         study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
         mlflow.log_params({f"best_{k}": v for k, v in study.best_params.items()})
@@ -195,9 +203,10 @@ def _buscar_p3(params_base: dict, n_trials: int) -> None:
 
     with _run_o_activo("P3-search-kmeans"):
         mlflow.set_tags(tags_run("P3", "KMeans", stage="search"))
+        mlflow.log_params(params_base)
         mlflow.log_param("n_trials", n_trials)
 
-        study = optuna.create_study(direction="minimize", study_name="P3-kmeans")
+        study = _crear_estudio("P3-kmeans")
         study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
         mlflow.log_params({f"best_{k}": v for k, v in study.best_params.items()})
@@ -227,7 +236,7 @@ def main():
         parser.error("--n-trials debe ser al menos 1.")
 
     configurar_experimento()
-    params_base = params_reproducibilidad()
+    params_base = params_reproducibilidad(args.pregunta)
     BUSCADORES[args.pregunta](params_base, args.n_trials)
 
 

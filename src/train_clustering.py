@@ -222,9 +222,10 @@ def entrenar(
 
 
 def main():
+    params_base = params_reproducibilidad("p3")
     perfil = cargar_datos()
     configurar_experimento()
-    entrenar("kmeans", HIPERPARAMS_POR_DEFECTO["p3"]["kmeans"], perfil, params_reproducibilidad())
+    entrenar("kmeans", HIPERPARAMS_POR_DEFECTO["p3"]["kmeans"], perfil, params_base)
 
 
 if __name__ == "__main__":

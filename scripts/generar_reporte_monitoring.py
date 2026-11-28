@@ -1,6 +1,7 @@
 """Crea el informe DOCX de drift, comparación A/B y Continuous Training de P1."""
 
 import argparse
+from datetime import UTC, datetime
 import json
 from pathlib import Path
 import tempfile
@@ -8,22 +9,23 @@ import tempfile
 import matplotlib
 
 matplotlib.use("Agg")
-from config import DATA_DIR, REPORTS_DIR
+from config import REPORTS_DIR
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
-from matplotlib.patches import Patch
 import matplotlib.pyplot as plt
+
+from src.dataset import sha256_archivo
+from src.monitoring_data import verificar_datasets_monitoreo
 
 DIRECTORIO_REPORTE = REPORTS_DIR / "monitoring"
 RUTA_DRIFT = DIRECTORIO_REPORTE / "drift_p1.json"
 RUTA_AB = DIRECTORIO_REPORTE / "ab_test_p1.json"
-RUTA_METADATA = DATA_DIR / "monitoring" / "metadata.json"
+RUTA_DRIFT_METADATA = DIRECTORIO_REPORTE / "drift_p1.metadata.json"
 RUTA_SALIDA_DEFAULT = DIRECTORIO_REPORTE / "TC5061_Drift_ABTest_Equipo33.docx"
-UMBRAL_DRIFT_GLOBAL = 0.5
 
 
 def _leer_json(ruta: Path) -> dict:
@@ -59,6 +61,14 @@ def _valor_metrica(datos: dict, nombre: str):
         if metrica.get("metric_name") == nombre:
             return metrica.get("value")
     return None
+
+
+def _preferible(metricas: dict, version_a: str, version_b: str, nombre: str, menor: bool) -> str:
+    a = metricas[version_a][nombre]
+    b = metricas[version_b][nombre]
+    if a == b:
+        return "Iguales"
+    return f"V{version_a}" if (a < b) == menor else f"V{version_b}"
 
 
 def _tabla(documento: Document, encabezados: list[str], filas: list[list[str]]) -> None:
@@ -103,31 +113,20 @@ def _enlace(parrafo, texto: str, url: str) -> None:
 
 def _crear_grafico_drift(variables: list[dict], ruta: Path) -> None:
     ordenadas = sorted(variables, key=lambda item: item["score"])
-    colores = [
-        "#bd3b32" if item["score"] > item["umbral"] else "#377eb8"
-        for item in ordenadas
-    ]
     alto = max(4.0, len(ordenadas) * 0.32)
     fig, ax = plt.subplots(figsize=(9, alto))
     posiciones = range(len(ordenadas))
     scores = [item["score"] for item in ordenadas]
-    ax.barh(posiciones, scores, color=colores)
+    ax.barh(posiciones, scores, color="#377eb8")
     ax.set_yticks(list(posiciones), [item["variable"] for item in ordenadas])
     ax.set_xlabel("Score de drift (umbral por variable)")
-    ax.set_title("Evidently: drift por variable, septiembre frente a abril–agosto")
+    ax.set_title("Evidently: score de drift por variable")
     for y, item in enumerate(ordenadas):
         ax.plot([item["umbral"], item["umbral"]], [y - 0.4, y + 0.4], color="#222222", lw=1.5)
         ax.text(item["score"] + 0.004, y, f"{item['score']:.3f}", va="center", fontsize=8)
-    limite = max(item["score"] for item in ordenadas)
+    limite = max(max(item["score"], item["umbral"]) for item in ordenadas)
     ax.set_xlim(0, limite * 1.18 if limite else 0.1)
     ax.grid(axis="x", alpha=0.2)
-    ax.legend(
-        handles=[
-            Patch(color="#bd3b32", label="Supera umbral"),
-            Patch(color="#377eb8", label="No supera umbral"),
-        ],
-        loc="lower right",
-    )
     fig.tight_layout()
     fig.savefig(ruta, dpi=180, bbox_inches="tight")
     plt.close(fig)
@@ -170,9 +169,21 @@ def _estilo(documento: Document) -> None:
 
 
 def generar_documento(ruta_salida: Path = RUTA_SALIDA_DEFAULT) -> Path:
+    if ruta_salida.exists():
+        raise FileExistsError(
+            f"No se sobrescribió el reporte existente: {ruta_salida}. Usa --output para otro nombre."
+        )
     drift = _leer_json(RUTA_DRIFT)
     ab = _leer_json(RUTA_AB)
-    metadata = _leer_json(RUTA_METADATA)
+    drift_metadata = _leer_json(RUTA_DRIFT_METADATA)
+    metadata = verificar_datasets_monitoreo()
+    if (
+        drift_metadata.get("datasets") != metadata
+        or ab.get("procedencia_datasets") != metadata
+        or drift_metadata.get("json_sha256") != sha256_archivo(RUTA_DRIFT)
+        or drift_metadata.get("html_sha256") != sha256_archivo(RUTA_DRIFT.with_suffix(".html"))
+    ):
+        raise ValueError("Drift y A/B no corresponden a los mismos datasets o fueron modificados.")
     variables, resumen_drift = _metricas_drift(drift)
     actual = metadata["actual"]
     referencia = metadata["referencia"]
@@ -190,10 +201,6 @@ def generar_documento(ruta_salida: Path = RUTA_SALIDA_DEFAULT) -> Path:
         )
     }
 
-    if ruta_salida.exists():
-        raise FileExistsError(
-            f"No se sobrescribió el reporte existente: {ruta_salida}. Usa --output para otro nombre."
-        )
     ruta_salida.parent.mkdir(parents=True, exist_ok=True)
 
     documento = Document()
@@ -204,42 +211,41 @@ def generar_documento(ruta_salida: Path = RUTA_SALIDA_DEFAULT) -> Path:
         "Drift, evaluación A/B y recomendación de Continuous Training"
     )
     subtitulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    fecha = documento.add_paragraph("Corte del análisis: 14 de noviembre de 2026")
+    fecha = documento.add_paragraph(f"Reporte generado: {datetime.now(UTC):%Y-%m-%d %H:%M UTC}")
     fecha.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     documento.add_heading("Resumen ejecutivo", level=1)
     documento.add_paragraph(
         f"Evidently detectó drift en {int(resumen_drift['count'])} de "
-        f"{len(variables)} variables ({resumen_drift['share']:.1%}), superando el criterio "
-        f"global de {UMBRAL_DRIFT_GLOBAL:.0%}. La versión {version_b} no mejora a la "
-        f"versión {version_a} en las métricas puntuales; por ello se recomienda conservar "
-        "la versión 1 como champion y usar el drift como disparador de entrenamiento candidato, "
-        "no de promoción automática."
+        f"{len(variables)} variables ({resumen_drift['share']:.1%}). La comparación "
+        f"de las versiones {version_a} y {version_b} requiere revisión humana; "
+        "ni el drift ni este reporte promueven un modelo automáticamente."
     )
 
     documento.add_heading("1. Datos y método", level=1)
     documento.add_paragraph(
-        f"Referencia: abril–agosto de 2026, periodo de entrenamiento "
+        f"Referencia: "
         f"({referencia['filas']:,} filas efectivas, {referencia['estaciones']} estaciones; "
-        f"{referencia['desde']} a {referencia['hasta']}). Actual: septiembre de 2026 "
+        f"{referencia['desde']} a {referencia['hasta']}). Actual: "
         f"({actual['filas']:,} filas, {actual['estaciones']} estaciones; "
         f"{actual['desde']} a {actual['hasta']})."
     )
     documento.add_paragraph(
         "El drift se calculó con Evidently 0.7.23 sobre las 11 features de P1 y el target "
         "demanda_salidas. Para el A/B se usaron las versiones registradas del mismo modelo, "
-        "las mismas filas de septiembre y las mismas métricas (RMSE, MAE y R²), con "
+        "las mismas filas y las mismas métricas (RMSE, MAE y R²), con "
         "predicciones negativas acotadas a cero."
     )
     documento.add_paragraph(
-        "La evaluación es offline, no un reparto aleatorio de tráfico real. Septiembre es el "
-        "único periodo posterior disponible y también fue el conjunto de prueba original."
+        "La evaluación es offline, no un reparto aleatorio de tráfico real. Comprueba que "
+        "el periodo sea independiente de los datos utilizados para seleccionar modelos."
     )
 
     documento.add_heading("2. Drift y calidad de datos", level=1)
     documento.add_paragraph(
         "Las barras muestran los scores por variable; cada marca vertical representa el umbral "
-        "de Evidently para esa variable. El umbral es un criterio de distancia, no un p-valor."
+        "de Evidently para esa variable. La dirección del umbral depende del método: "
+        "una distancia y un p-valor no se interpretan igual. Consulta el HTML para el dictamen."
     )
     with tempfile.TemporaryDirectory() as temporal:
         ruta_drift_img = Path(temporal) / "drift.png"
@@ -249,18 +255,13 @@ def generar_documento(ruta_salida: Path = RUTA_SALIDA_DEFAULT) -> Path:
         documento.add_picture(str(ruta_drift_img), width=Inches(6.6))
         documento.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-        documento.add_paragraph(
-            "Superan el umbral: "
-            + ", ".join(
-                f"{item['variable']} ({item['score']:.3f})"
+        _tabla(
+            documento,
+            ["Variable", "Método", "Score", "Umbral"],
+            [
+                [item["variable"], item["metodo"], f"{item['score']:.4f}", f"{item['umbral']:.4f}"]
                 for item in variables
-                if item["score"] > item["umbral"]
-            )
-            + "."
-        )
-        documento.add_paragraph(
-            "El mayor score es rolling_mean_6h (0.226). Las variables de calendario no "
-            "superan el umbral; el cambio se concentra en demanda, rezagos y media móvil."
+            ],
         )
         _tabla(
             documento,
@@ -275,7 +276,7 @@ def generar_documento(ruta_salida: Path = RUTA_SALIDA_DEFAULT) -> Path:
 
         documento.add_heading("3. Resultado del A/B testing", level=1)
         documento.add_paragraph(
-            f"V{version_a} (baseline) se compara contra V{version_b} (candidata). "
+            f"V{version_a} se compara contra V{version_b}. "
             f"El bootstrap pareado por día utilizó {bootstrap['bloques_dia']} bloques diarios "
             f"y {bootstrap['replicas']:,} réplicas."
         )
@@ -289,19 +290,19 @@ def generar_documento(ruta_salida: Path = RUTA_SALIDA_DEFAULT) -> Path:
                     "RMSE ↓",
                     f"{metricas[version_a]['rmse']:.4f}",
                     f"{metricas[version_b]['rmse']:.4f}",
-                    f"V{version_a}",
+                    _preferible(metricas, version_a, version_b, "rmse", menor=True),
                 ],
                 [
                     "MAE ↓",
                     f"{metricas[version_a]['mae']:.4f}",
                     f"{metricas[version_b]['mae']:.4f}",
-                    f"V{version_a}",
+                    _preferible(metricas, version_a, version_b, "mae", menor=True),
                 ],
                 [
                     "R² ↑",
                     f"{metricas[version_a]['r2']:.4f}",
                     f"{metricas[version_b]['r2']:.4f}",
-                    f"V{version_a}",
+                    _preferible(metricas, version_a, version_b, "r2", menor=False),
                 ],
             ],
         )
@@ -309,8 +310,8 @@ def generar_documento(ruta_salida: Path = RUTA_SALIDA_DEFAULT) -> Path:
             f"Delta RMSE V{version_b} − V{version_a}: "
             f"{bootstrap['delta_observado_rmse_b_menos_a']:+.4f}; IC bootstrap 95% "
             f"[{bootstrap['ic_95_inferior']:+.4f}, {bootstrap['ic_95_superior']:+.4f}]. "
-            "El intervalo incluye cero, así que la diferencia no es concluyente con este "
-            "periodo. La candidata queda ligeramente peor en las métricas puntuales."
+            "La diferencia y su incertidumbre deben evaluarse junto con la relevancia "
+            "operativa y la independencia del periodo."
         )
         documento.add_paragraph(
             f"V{version_b}: hiperparámetros {modelos[version_b]['hiperparametros']}; "
@@ -320,10 +321,8 @@ def generar_documento(ruta_salida: Path = RUTA_SALIDA_DEFAULT) -> Path:
 
     documento.add_heading("4. Recomendación de Continuous Training", level=1)
     documento.add_paragraph(
-        "Sí conviene habilitar Continuous Training como flujo de generación de candidatos, "
-        "porque hay drift en más de la mitad de las variables analizadas. No conviene activar "
-        "promoción automática: este A/B no muestra mejora de la V2 y la incertidumbre abarca "
-        "cero. Mantener V1 como champion."
+        "Revisar el drift y las métricas antes de decidir si corresponde entrenar una "
+        "candidata. La promoción requiere revisión humana; este informe no modifica el Registry."
     )
     for texto in (
         "Usar drift persistente como señal para entrenar una candidata y registrar su linaje.",
@@ -338,10 +337,8 @@ def generar_documento(ruta_salida: Path = RUTA_SALIDA_DEFAULT) -> Path:
     ):
         documento.add_paragraph(texto, style="List Bullet")
     documento.add_paragraph(
-        "Limitaciones: septiembre es una muestra retrospectiva de un solo mes, ya usado como "
-        "prueba de los baselines, y no son logs reales de la API. La V2 también conserva "
-        "git_dirty=True en sus tags de Registry; debe repetirse el entrenamiento desde un "
-        "estado limpio antes de cualquier promoción."
+        "Limitaciones: esta comparación usa datos retrospectivos, no logs reales de la API. "
+        "Antes de promover, comprueba la independencia temporal y el linaje de ambas versiones."
     )
 
     documento.add_heading("Anexo: reporte interactivo de Evidently", level=1)

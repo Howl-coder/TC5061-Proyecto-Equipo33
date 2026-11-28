@@ -75,13 +75,14 @@ def main():
         parser.error(str(e))
 
     modulo = MODULOS[args.pregunta]
+    params_base = params_reproducibilidad(args.pregunta)
     datos = modulo.cargar_datos()
     configurar_experimento()
     modulo.entrenar(
         modelo,
         hiperparams,
         datos,
-        params_reproducibilidad(),
+        params_base,
         stage=args.stage,
     )
 

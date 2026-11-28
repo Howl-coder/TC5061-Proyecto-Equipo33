@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from config import DATA_VERSION
+from src import dataset
 from src.dataset import cargar_catalogo_amg, generar_manifiesto, sha256_archivo
 
 
@@ -61,6 +62,20 @@ def test_generar_manifiesto_falla_si_falta_un_archivo(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="no_existe.csv"):
         generar_manifiesto([existente, tmp_path / "no_existe.csv"])
+
+
+def test_manifiesto_faltante_solo_se_crea_con_actualizacion_explicita(tmp_path, monkeypatch):
+    archivo = tmp_path / "datos.csv"
+    archivo.write_text("id\n1\n", encoding="utf-8")
+    manifiesto = tmp_path / "manifiesto.json"
+    monkeypatch.setattr(dataset, "ARCHIVOS_CRUDOS", [archivo])
+    monkeypatch.setattr(dataset, "RUTA_MANIFIESTO_DATOS", manifiesto)
+
+    with pytest.raises(FileNotFoundError, match="Falta el manifiesto"):
+        dataset.verificar_datos_crudos()
+    assert not manifiesto.exists()
+    creado = dataset.verificar_datos_crudos(actualizar=True)
+    assert dataset.verificar_datos_crudos() == creado
 
 
 def _escribir_catalogo(ruta, encoding="utf-8"):

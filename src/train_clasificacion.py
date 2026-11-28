@@ -230,9 +230,9 @@ def entrenar(
 
 
 def main():
+    params_base = params_reproducibilidad("p2")
     datos = cargar_datos()
     configurar_experimento()
-    params_base = params_reproducibilidad()
 
     for modelo, hiperparams in HIPERPARAMS_POR_DEFECTO["p2"].items():
         entrenar(modelo, hiperparams, datos, params_base)

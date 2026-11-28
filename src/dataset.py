@@ -110,14 +110,21 @@ def guardar_manifiesto(manifiesto: dict) -> None:
 def verificar_datos_crudos(actualizar: bool = False) -> dict:
     """Compara los CSV locales contra el manifiesto versionado y devuelve el manifiesto vigente.
 
-    Si no existe manifiesto, o si actualizar=True, se registra la versión actual de los datos.
-    Si los archivos difieren del manifiesto, se detiene para no mezclar versiones sin querer.
+    Solo se registra una nueva versión si actualizar=True. Si falta el manifiesto o los
+    archivos difieren, se detiene para no mezclar versiones sin querer.
     """
     actual = generar_manifiesto(ARCHIVOS_CRUDOS)
-    if actualizar or not RUTA_MANIFIESTO_DATOS.exists():
+    if actualizar:
         guardar_manifiesto(actual)
         print(f"Manifiesto registrado: {RUTA_MANIFIESTO_DATOS} ({actual['sha256_global'][:16]})")
         return actual
+
+    if not RUTA_MANIFIESTO_DATOS.exists():
+        raise FileNotFoundError(
+            f"Falta el manifiesto {RUTA_MANIFIESTO_DATOS}. "
+            "Recupera el manifiesto versionado o registra uno nuevo intencionalmente con "
+            "python -m src.dataset --actualizar-manifiesto."
+        )
 
     registrado = cargar_manifiesto()
     if registrado["sha256_global"] != actual["sha256_global"]:
@@ -242,5 +249,9 @@ if __name__ == "__main__":
     elif args.forzar_descarga:
         descargar_datos_crudos(forzar=True)
 
-    verificar_datos_crudos(actualizar=args.actualizar_manifiesto)
+    manifiesto = verificar_datos_crudos(actualizar=args.actualizar_manifiesto)
     procesar_e_integrar_datos(ARCHIVOS_VIAJES_RAW, RUTA_CATALOGO_ESTACIONES)
+    from src.provenance import INTERIM, guardar_procedencia, registrar_procedencia_mlflow
+
+    guardar_procedencia(INTERIM, "ingest", manifiesto["sha256_global"])
+    registrar_procedencia_mlflow(INTERIM, "ingest", manifiesto["sha256_global"])

@@ -1,4 +1,6 @@
 """Utilidades comunes para registrar los runs en MLflow Tracking."""
+from importlib.metadata import version
+import platform
 import shutil
 import subprocess  # nosec B404
 
@@ -74,10 +76,10 @@ def tags_run(pregunta: str, model_family: str, stage: str = "baseline") -> dict:
     }
 
 
-def params_reproducibilidad() -> dict:
+def params_reproducibilidad(pregunta: str | None = None) -> dict:
     """Parámetros comunes; falla si los datos locales no coinciden con el manifiesto versionado."""
     manifiesto = verificar_datos_crudos()
-    return {
+    params = {
         "fecha_inicio": FECHA_INICIO,
         "fecha_fin": FECHA_FIN,
         "fecha_fin_train": FECHA_FIN_TRAIN,
@@ -87,4 +89,14 @@ def params_reproducibilidad() -> dict:
         "archivos_viajes": ",".join(p.name for p in ARCHIVOS_VIAJES_RAW),
         "catalogo_estaciones": RUTA_CATALOGO_ESTACIONES.name,
         "random_state": RANDOM_STATE,
+        "python_version": platform.python_version(),
+        **{
+            f"{nombre.replace('-', '_')}_version": version(nombre)
+            for nombre in ("mlflow", "numpy", "pandas", "pyarrow", "scikit-learn", "optuna")
+        },
     }
+    if pregunta is not None:
+        from src.provenance import verificar_datos_preparados
+
+        params.update(verificar_datos_preparados(pregunta, manifiesto["sha256_global"]))
+    return params
