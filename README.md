@@ -121,10 +121,10 @@ archivos no ignorados sin seguimiento.
 | [FinOps](reports/finops.md) · [carga y recursos](reports/carga/recursos.md) | Estimación de costos y sus supuestos |
 | [Model Registry](reports/parte-c-model-registry.md) | Selección, linaje y alias documentados |
 
-Para una nueva revisión, regenera primero ingesta y features si cambiaron datos o código,
-prepara los conjuntos y ejecuta Evidently y la comparación como se indica arriba. Esos
-comandos usan los periodos de `config.py`; la API no genera telemetría ni activa alertas,
-entrenamiento o promociones automáticamente. El reporte de drift sobrescribe sus archivos
+Para una nueva revisión retrospectiva, regenera primero ingesta y features si cambiaron datos
+o código, prepara los conjuntos y ejecuta Evidently y la comparación como se indica arriba.
+Esos comandos usan los periodos de `config.py`; la API no genera telemetría ni guarda
+solicitudes. El reporte de drift sobrescribe sus archivos
 HTML, JSON y metadatos; la comparación sobrescribe su JSON por defecto, pero admite `--output` para
 conservar la evidencia anterior. Verifica qué archivos deseas preservar antes de ejecutarlos.
 Los datasets de monitoreo históricos sin hashes deben regenerarse: Evidently y A/B
@@ -136,13 +136,50 @@ observados. Si se propone una candidata, utiliza un árbol Git limpio, compara c
 champion en un periodo independiente y documenta la decisión antes de promoverla. Actualiza
 el Model Card y la estimación FinOps al cambiar el modelo, los datos o la operación.
 
-Para cada revisión, el equipo debe designar responsables de datos, evaluación y aprobación;
-estos roles y su periodicidad aún no están asignados en el repositorio. La persona responsable
-debe conservar los resultados y hashes, investigar cambios y calidad, revisar errores por
-segmento y registrar si se mantiene, reentrena o propone una candidata, con su justificación.
-Antes de una promoción, acuerda criterios de calidad, costo y reversión y comprueba el alias
-vigente. No registrar solicitudes ni datos personales adicionales sin definir acceso,
-retención y controles de privacidad; actualmente no existe captura de telemetría.
+### Continuous Training de P1
+
+El workflow [continuous-training.yml](.github/workflows/continuous-training.yml) consulta el
+portal público de MiBici el día 20 de cada mes y también admite ejecución manual. Descubre los
+CSV publicados en la página oficial (sin IDs de archivo codificados), requiere seis meses
+consecutivos y procesa los cinco meses previos para entrenamiento y el último mes publicado
+para evaluación. Como control de completitud, rechaza una publicación cuyo último viaje esté
+a más de siete días del fin del mes. El ciclo calcula Evidently sobre features y target, y
+registra reporte, manifiesto, periodos, tamaño de muestras y SHA-256. Si el hash ya fue
+evaluado, no repite entrenamiento.
+Los CSV crudos se guardan solo en un directorio temporal del runner y no se cargan a MLflow.
+
+El reentrenamiento de P1 se dispara cuando al menos el 40% de las columnas analizadas presenta
+drift. Una candidata solo recibe el alias `champion` si, evaluada sobre el mismo último mes que
+la versión vigente, cumple **todos** estos gates:
+
+| Gate | Criterio |
+|---|---|
+| Calidad absoluta | RMSE de prueba ≤ 2.0 |
+| Mejora relativa | RMSE al menos 2% menor que el champion vigente |
+| Incertidumbre | Límite superior del IC bootstrap pareado por día (95%) de `RMSE candidata − RMSE champion` < 0 |
+| Segmentos | Ninguna estación con al menos 100 filas empeora más de 0.25 RMSE |
+| Costo de entrenamiento | Duración ≤ 900 segundos |
+| Seguridad de promoción | Confirma que el alias no cambió durante la evaluación; verifica la versión y conserva la anterior para rollback |
+
+Si drift dispara entrenamiento pero la candidata no supera un gate, queda registrada como
+candidata con la justificación y las métricas; se mantiene el alias existente. Cada evaluación
+deja evidencia JSON en `data/monitoring/continuous-training/` y artefactos en el run de MLflow.
+El workflow conserva su artefacto de ejecución por 90 días. El tiempo de entrenamiento es
+solo un proxy de costo computacional: no se afirma medir costo monetario o de inferencia.
+
+Configura `MLFLOW_TRACKING_URI` como secreto HTTPS del repositorio y, si el servidor usa
+autenticación, también `MLFLOW_TRACKING_USERNAME` y `MLFLOW_TRACKING_PASSWORD`. El Registry debe
+contener el modelo P1 `champion` inicial. Para ejecutar manualmente, selecciona
+`continuous_training` en Actions. Para rollback, selecciona `rollback` e indica tanto la
+versión destino READY como la versión que se espera que tenga actualmente el alias; el ciclo
+cancela la operación si el alias cambió. Tras una promoción, revisa el artefacto y el run
+MLflow, y actualiza el Model Card y la evidencia FinOps. El ciclo usa datos públicos agregados
+por estación/hora; no captura solicitudes ni añade datos personales.
+
+El equipo aún debe asignar responsables de datos, evaluación y aprobación, y revisar
+periódicamente estos umbrales de calidad y costo. La promoción automática queda limitada a los
+gates documentados; cambia los criterios mediante revisión de código antes de habilitar una
+política distinta.
 
 ### Versionado de datos
 
@@ -172,6 +209,9 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 ├── MLproject              # MLflow Project: entry points ingest, features, train y search
 ├── Containerfile          # Imagen OCI de la API (FastAPI + modelo exportado)
 ├── .dockerignore          # Contexto mínimo de la imagen (también lo usa Podman)
+├── .github/workflows/
+│   ├── ci.yml             # Pruebas, validación de datos y entrega continua
+│   └── continuous-training.yml # Drift, reentrenamiento, promoción y rollback P1
 ├── README.md
 ├── config.py              # Rutas, fechas, filtros AMG, MLflow y modelos/hiperparámetros por defecto
 ├── pyproject.toml         # Metadatos del proyecto y configuración de ruff
@@ -182,7 +222,8 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 ├── data/                  # No versionado
 │   ├── raw/               # CSV originales de MiBici
 │   ├── interim/           # viajes_amg_limpios.parquet
-│   └── processed/         # features_demanda_p1.parquet
+│   ├── processed/         # features_demanda_p1.parquet
+│   └── monitoring/        # Evidencia local y hashes de Continuous Training
 ├── docs/
 ├── models/                # Modelos locales (no versionados; los oficiales viven en MLflow); servicio/ = modelo exportado para la imagen
 ├── notebooks/
@@ -195,10 +236,10 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 ├── reports/
 │   ├── figures/           # Figuras generadas (también se guardan como artefactos en MLflow)
 │   ├── evidence/           # Capturas y logs de pytest, DeepChecks, Bandit y pip-audit
-│   ├── monitoring/         # Reportes Evidently, A/B y Continuous Training de P1
+│   ├── monitoring/         # Reportes Evidently y A/B retrospectivos
 │   └── parte-c-model-registry.md  # Comparación y justificación de modelos promovidos
 ├── scripts/
-│   ├── generar_reporte_monitoring.py # Genera el DOCX de drift, A/B y Continuous Training
+│   ├── generar_reporte_monitoring.py # Genera el DOCX de drift y A/B
 │   ├── probar_contenedor.ps1      # Construye la imagen, la ejecuta y prueba la API (Windows)
 │   └── probar_contenedor.sh       # Mismo script para Linux/macOS (bash)
 ├── src/
@@ -209,6 +250,7 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
 │   ├── monitoring_data.py # Separa y persiste referencia y periodo actual de P1
 │   ├── monitoring_report.py # Genera el reporte de drift y calidad con Evidently
 │   ├── ab_testing.py      # Evalúa versiones del Registry con bootstrap pareado por día
+│   ├── continuous_training.py # Entrena, evalúa y promueve P1 solo ante drift y gates aprobados
 │   ├── p1_schema.py       # Target y features compartidos por entrenamiento y validación P1
 │   ├── tracking.py        # Utilidades comunes de MLflow (tags, parámetros, verificación de datos)
 │   ├── train.py           # Entrena un modelo (pregunta, modelo, hiperparámetros); usado por MLproject
@@ -226,6 +268,7 @@ Generada con [Cookiecutter Data Science](https://cookiecutter-data-science.drive
     ├── test_monitoring_data.py      # Separación temporal de los datasets de monitoreo
     ├── test_monitoring_report.py    # Reporte Evidently de drift y calidad
     ├── test_ab_testing.py           # Métricas y bootstrap pareado de versiones P1
+    ├── test_continuous_training.py  # Drift, promoción, procedencia e idempotencia de P1
     ├── test_train.py                # Parseo de hiperparámetros del CLI
     ├── test_search.py               # Partición temporal de validación y purga
     ├── test_model_package.py        # Exportación y carga del modelo del registry
