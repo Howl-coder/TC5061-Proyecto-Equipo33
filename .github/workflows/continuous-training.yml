@@ -1,0 +1,115 @@
+name: Continuous Training
+
+on:
+  schedule:
+    - cron: "17 15 20 * *"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Operación de P1
+        type: choice
+        options:
+          - continuous_training
+          - rollback
+        default: continuous_training
+        required: true
+      rollback_to:
+        description: Versión READY de P1 que recibirá el alias champion (solo rollback)
+        type: string
+        required: false
+      expected_current_version:
+        description: Versión a la que debe apuntar champion antes de revertir
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: continuous-training-p1
+  cancel-in-progress: false
+
+jobs:
+  train-and-promote:
+    if: github.event.inputs.action != 'rollback'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Validate MLflow Registry credentials
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          uri = os.environ.get("MLFLOW_TRACKING_URI", "")
+          if urlparse(uri).scheme != "https" or not urlparse(uri).hostname:
+              raise SystemExit("Configure MLFLOW_TRACKING_URI as an HTTPS GitHub Actions secret.")
+          PY
+      - name: Detect drift, train candidate, evaluate and promote
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: python -m src.continuous_training
+      - name: Preserve monitoring, provenance, and promotion evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuous-training-${{ github.run_id }}
+          path: data/monitoring/continuous-training/
+          if-no-files-found: warn
+          retention-days: 90
+
+  rollback:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'rollback'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Validate rollback inputs and Registry credentials
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          ROLLBACK_TO: ${{ inputs.rollback_to }}
+          EXPECTED_CURRENT_VERSION: ${{ inputs.expected_current_version }}
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          uri = os.environ.get("MLFLOW_TRACKING_URI", "")
+          if urlparse(uri).scheme != "https" or not urlparse(uri).hostname:
+              raise SystemExit("Configure MLFLOW_TRACKING_URI as an HTTPS GitHub Actions secret.")
+          if not os.environ.get("ROLLBACK_TO") or not os.environ.get("EXPECTED_CURRENT_VERSION"):
+              raise SystemExit("Provide both rollback_to and expected_current_version.")
+          PY
+      - name: Restore the previously approved Registry version
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+          ROLLBACK_TO: ${{ inputs.rollback_to }}
+          EXPECTED_CURRENT_VERSION: ${{ inputs.expected_current_version }}
+        run: python -m src.continuous_training --rollback-to "$ROLLBACK_TO" --expected-current-version "$EXPECTED_CURRENT_VERSION"
+      - name: Preserve rollback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuous-training-rollback-${{ github.run_id }}
+          path: data/monitoring/continuous-training/
+          if-no-files-found: warn
+          retention-days: 90

@@ -155,7 +155,14 @@ def cargar_catalogo_amg(ruta_estaciones: Path) -> pd.DataFrame:
     df_est["id"] = df_est["id"].astype(int)
     return df_est
 
-def procesar_e_integrar_datos(archivos: list, ruta_estaciones: Path) -> pd.DataFrame:
+def procesar_e_integrar_datos(
+    archivos: list,
+    ruta_estaciones: Path,
+    *,
+    fecha_inicio: str = FECHA_INICIO,
+    fecha_fin: str = FECHA_FIN,
+    ruta_salida: Path | None = None,
+) -> pd.DataFrame:
     """Lee archivos explícitos, limpia nombres, optimiza memoria y filtra al AMG."""
     df_est = cargar_catalogo_amg(ruta_estaciones)
     estaciones_validas = set(df_est["id"].unique())
@@ -201,8 +208,8 @@ def procesar_e_integrar_datos(archivos: list, ruta_estaciones: Path) -> pd.DataF
 
     # Filtro temporal
     df = df[
-        (df["Inicio_del_viaje"] >= FECHA_INICIO) & 
-        (df["Inicio_del_viaje"] <= FECHA_FIN)
+        (df["Inicio_del_viaje"] >= fecha_inicio)
+        & (df["Inicio_del_viaje"] <= fecha_fin)
     ]
 
     # Duración en minutos y filtros de calidad (1 min a 24 horas)
@@ -223,9 +230,9 @@ def procesar_e_integrar_datos(archivos: list, ruta_estaciones: Path) -> pd.DataF
     df.sort_values(by="Inicio_del_viaje", inplace=True)
     df.reset_index(drop=True, inplace=True)
 
-    # Guardar en data/interim
-    INTERIM_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    salida = INTERIM_DATA_DIR / "viajes_amg_limpios.parquet"
+    # Guardar en data/interim, a menos que el caller solicite una salida temporal.
+    salida = Path(ruta_salida) if ruta_salida else INTERIM_DATA_DIR / "viajes_amg_limpios.parquet"
+    salida.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(salida, index=False)
     
     print(f"Guardado exitoso en {salida}")
